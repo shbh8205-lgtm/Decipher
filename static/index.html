@@ -1,0 +1,372 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Decipher | Authorization review</title>
+  <link rel="icon" type="image/svg+xml" href="/static/decipher-mark.svg">
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #18302f;
+      --muted: #617472;
+      --line: #dce6e3;
+      --surface: #fff;
+      --canvas: #f3f7f5;
+      --teal: #087f72;
+      --teal-dark: #07675e;
+      --amber: #8c5a00;
+      --amber-bg: #fff4dc;
+      --red: #a33434;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; color: var(--ink); background: var(--canvas); }
+    button, input { font: inherit; }
+    button { cursor: pointer; }
+    header {
+      display: flex; align-items: center; justify-content: space-between; gap: 20px;
+      padding: 18px clamp(20px, 5vw, 72px); background: var(--surface); border-bottom: 1px solid var(--line);
+    }
+    .brand { display: flex; align-items: center; gap: 12px; font-weight: 750; letter-spacing: -.03em; }
+    .brand-mark { display: block; width: 40px; height: 40px; border-radius: 12px; }
+    .brand small { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; font-weight: 500; letter-spacing: 0; }
+    .model-status { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: #cf9d31; }
+    .dot.ready { background: #2b9a6f; }
+    main { max-width: 1440px; margin: 0 auto; padding: 34px clamp(18px, 4vw, 56px) 60px; }
+    .intro { display: flex; justify-content: space-between; align-items: end; gap: 24px; margin-bottom: 25px; }
+    h1 { margin: 0 0 8px; font-size: clamp(25px, 3vw, 34px); letter-spacing: -.04em; }
+    .intro p { max-width: 660px; margin: 0; color: var(--muted); line-height: 1.55; }
+    .local-note { color: var(--muted); font-size: 12px; text-align: right; }
+    .upload {
+      display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 20px 22px;
+      background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 2px 8px #19302f08;
+    }
+    .upload-copy { display: flex; align-items: center; gap: 14px; }
+    .upload-icon { display: grid; place-items: center; flex: none; width: 42px; height: 42px; color: var(--teal); background: #e6f4f0; border-radius: 12px; font-size: 20px; }
+    .upload-copy strong { display: block; margin-bottom: 4px; }
+    .upload-copy span { color: var(--muted); font-size: 13px; }
+    .group-option { display: flex; align-items: center; gap: 7px; color: var(--muted); font-size: 12px; }
+    .group-option input { accent-color: var(--teal); }
+    .consent { display: flex; align-items: flex-start; gap: 9px; margin-top: 14px; padding: 12px 14px; color: var(--muted); background: #fff8e9; border: 1px solid #f0dfba; border-radius: 10px; font-size: 12px; line-height: 1.5; }
+    .consent input { flex: none; margin-top: 2px; accent-color: var(--teal); }
+    .actions { display: flex; gap: 10px; align-items: center; }
+    .button { border: 0; padding: 11px 16px; color: white; background: var(--teal); border-radius: 9px; font-weight: 650; }
+    .button:hover { background: var(--teal-dark); }
+    .button:disabled { opacity: .55; cursor: wait; }
+    .button.secondary { color: var(--teal-dark); background: #e8f3f0; }
+    input[type=file] { display: none; }
+    #uploadStatus { margin: 12px 2px 0; color: var(--muted); font-size: 13px; min-height: 18px; }
+    .workspace { display: grid; grid-template-columns: minmax(320px, .85fr) minmax(440px, 1.15fr); gap: 18px; margin-top: 18px; align-items: start; }
+    .panel { overflow: hidden; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 2px 8px #19302f08; }
+    .panel-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 17px 19px; border-bottom: 1px solid var(--line); }
+    .panel-head h2 { margin: 0; font-size: 15px; }
+    .count { padding: 3px 8px; color: var(--muted); background: var(--canvas); border-radius: 20px; font-size: 12px; }
+    .records { max-height: 630px; overflow: auto; }
+    .record-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; padding: 14px 18px; text-align: left; border: 0; border-bottom: 1px solid #edf1ef; background: white; color: var(--ink); }
+    .record-row:hover, .record-row.selected { background: #f1f8f6; }
+    .record-row.selected { box-shadow: inset 3px 0 var(--teal); }
+    .row-main { min-width: 0; }
+    .row-main strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+    .row-main small { display: block; margin-top: 5px; color: var(--muted); font-size: 12px; }
+    .badge { flex: none; padding: 4px 8px; color: var(--amber); background: var(--amber-bg); border-radius: 20px; font-size: 11px; font-weight: 650; }
+    .badge.approved { color: #19734e; background: #e6f5ec; }
+    .empty { padding: 48px 22px; color: var(--muted); text-align: center; font-size: 13px; line-height: 1.6; }
+    .detail-content { padding: 18px 20px 20px; }
+    .source-line { display: flex; justify-content: space-between; gap: 10px; color: var(--muted); font-size: 12px; margin-bottom: 14px; }
+    .review-alert { padding: 11px 13px; margin-bottom: 16px; color: var(--amber); background: var(--amber-bg); border-radius: 9px; font-size: 12px; line-height: 1.5; }
+    .review-alert.ok { color: #19734e; background: #e6f5ec; }
+    .fields { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .field label { display: block; margin-bottom: 6px; color: var(--muted); font-size: 11px; font-weight: 650; }
+    .field input { width: 100%; padding: 10px 11px; color: var(--ink); background: #fff; border: 1px solid var(--line); border-radius: 8px; outline: none; }
+    .field input:focus { border-color: #65aa9f; box-shadow: 0 0 0 3px #087f7216; }
+    .field input.low { border-color: #d9a23e; }
+    .field.wide { grid-column: 1 / -1; }
+    .field-hint { margin-top: 5px; color: #8b6a2e; font-size: 10px; }
+    .field-evidence { margin-top: 5px; color: var(--muted); font-size: 10px; line-height: 1.4; }
+    .detail-actions { display: flex; justify-content: flex-end; gap: 9px; margin-top: 17px; }
+    .preview-wrap { margin-top: 18px; }
+    .preview-wrap h3 { margin: 0 0 9px; color: var(--muted); font-size: 12px; }
+    .preview { display: grid; place-items: center; min-height: 170px; max-height: 310px; overflow: auto; color: var(--muted); background: #f5f7f6; border: 1px dashed var(--line); border-radius: 9px; font-size: 12px; text-align: center; }
+    .preview img { display: block; width: 100%; height: auto; object-fit: contain; }
+    .preview iframe { width: 100%; height: 310px; border: 0; }
+    .preview-page { width: 100%; padding: 8px; }
+    .preview-page small { display: block; margin-bottom: 6px; color: var(--muted); }
+    .privacy { margin-top: 24px; padding: 13px 16px; color: var(--muted); background: #eaf1ef; border-radius: 10px; font-size: 12px; line-height: 1.5; }
+    .progress-track { width: 100%; height: 7px; margin-top: 9px; accent-color: var(--teal); }
+    .progress-track[hidden] { display: none; }
+    @media (max-width: 900px) {
+      .workspace { grid-template-columns: 1fr; }
+      .records { max-height: 300px; }
+    }
+    @media (max-width: 600px) {
+      header { align-items: flex-start; }
+      .model-status { max-width: 130px; text-align: right; font-size: 11px; }
+      .intro { display: block; }
+      .local-note { margin-top: 12px; text-align: left; }
+      .upload { align-items: flex-start; flex-direction: column; }
+      .actions { width: 100%; }
+      .actions .button { flex: 1; }
+      .fields { grid-template-columns: 1fr; }
+      .field.wide { grid-column: auto; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="brand"><img class="brand-mark" src="/static/decipher-mark.svg" alt=""><div>Decipher<small>Authorization review workspace</small></div></div>
+    <div class="model-status"><span class="dot" id="modelDot"></span><span id="modelStatus">Checking Gemini setup…</span></div>
+  </header>
+  <main>
+    <section class="intro">
+      <div><h1>Authorization records</h1><p>Extract patient and authorization details from forms, then review uncertain fields before approving records for the lab.</p></div>
+      <div class="local-note">Gemini-powered extraction · Originals are not retained by this app</div>
+    </section>
+    <section class="upload">
+      <div class="upload-copy"><div class="upload-icon">↑</div><div><strong>Upload authorization forms</strong><span>PDF, PNG, JPEG, TIFF, BMP or WebP · Up to 20 MB and 12 pages per form</span></div></div>
+      <div class="actions"><label class="group-option"><input id="groupPages" type="checkbox"> Group selected images as one form</label><input id="fileInput" type="file" multiple accept=".pdf,.png,.jpg,.jpeg,.tif,.tiff,.bmp,.webp"><button id="chooseButton" class="button secondary" type="button">Choose files</button><button id="uploadButton" class="button" type="button" disabled>Extract forms</button></div>
+    </section>
+    <label class="consent"><input id="externalConsent" type="checkbox"><span>I am authorized to process these documents using Google Gemini. I understand the document images will be sent to Google's Gemini API, and its response will contain extracted medical and identity information, under the account and terms associated with the configured API key.</span></label>
+    <div id="uploadStatus" role="status"></div>
+    <progress id="uploadProgress" class="progress-track" max="100" value="0" hidden></progress>
+    <section class="workspace">
+      <div class="panel">
+        <div class="panel-head"><h2>Records</h2><span class="count" id="recordCount">0</span></div>
+        <div class="records" id="recordsList"><div class="empty">No records yet.<br>Upload a form to get started.</div></div>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><h2>Review and correct</h2><span class="count" id="recordState">Select a record</span></div>
+        <div class="empty" id="detailEmpty">Select a record from the list to inspect its extracted fields.</div>
+        <div class="detail-content" id="detailContent" hidden></div>
+      </div>
+    </section>
+    <div class="privacy"><strong>Privacy:</strong> document images are sent to Google Gemini for extraction. The API key stays on the server. Extracted records are saved in a local SQLite database; this prototype has no login and should not be exposed to a network. Confirm that your organization's privacy, consent, and regulatory requirements permit using Gemini for these medical documents.</div>
+  </main>
+  <script>
+    const records = [];
+    const previews = new Map();
+    let selectedId = null;
+    let modelReady = false;
+    const $ = (selector) => document.querySelector(selector);
+
+    function escapeHtml(value) {
+      return String(value ?? "").replace(/[&<>"']/g, (char) => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+      })[char]);
+    }
+
+    async function checkModel() {
+      try {
+        const response = await fetch("/api/status");
+        const status = await response.json();
+        const ready = status.configured;
+        modelReady = ready;
+        $("#modelDot").classList.toggle("ready", ready);
+        $("#modelStatus").textContent = ready
+          ? `Gemini configured · ${status.model}`
+          : "Gemini API key not configured";
+        $("#uploadButton").disabled = !ready || !$("#externalConsent").checked || !$("#fileInput").files.length;
+      } catch {
+        $("#modelStatus").textContent = "Could not check Gemini configuration";
+        $("#uploadButton").disabled = true;
+      }
+    }
+
+    function reasonsFor(record) {
+      return record.review_reasons || [];
+    }
+
+    function renderList() {
+      $("#recordCount").textContent = records.length;
+      if (!records.length) {
+        $("#recordsList").innerHTML = '<div class="empty">No records yet.<br>Upload a form to get started.</div>';
+        return;
+      }
+      $("#recordsList").innerHTML = records.map((record) => {
+        const name = [record.first_name, record.last_name].filter(Boolean).join(" ") || "Name not identified";
+        const authorization = record.authorization_number || "No authorization number";
+        const status = record.approved ? '<span class="badge approved">Approved</span>' : '<span class="badge">Review</span>';
+        return `<button class="record-row ${selectedId === record.id ? "selected" : ""}" data-id="${escapeHtml(record.id)}">
+          <span class="row-main"><strong>${escapeHtml(name)}</strong><small>${escapeHtml(authorization)} · ${escapeHtml(record.source_filename)}</small></span>${status}</button>`;
+      }).join("");
+      document.querySelectorAll(".record-row").forEach((button) => {
+        button.addEventListener("click", () => selectRecord(button.dataset.id));
+      });
+    }
+
+    function fieldMarkup(record, name, label, value, wide = false) {
+      const confidenceField = name;
+      const confidence = confidenceField ? Number(record.field_confidence?.[confidenceField] ?? 1) : 1;
+      const low = confidence < 0.75;
+      const renderedValue = Array.isArray(value) ? value.join(", ") : value ?? "";
+      const placeholder = name === "central_numbers" ? "Separate multiple values with commas" : "";
+      const evidence = record.evidence?.[name];
+      return `<div class="field ${wide ? "wide" : ""}">
+        <label for="field-${name}">${label}</label>
+        <input id="field-${name}" name="${name}" value="${escapeHtml(renderedValue)}" class="${low ? "low" : ""}" placeholder="${placeholder}">
+        ${low ? `<div class="field-hint">Low extraction confidence (${Math.round(confidence * 100)}%)</div>` : ""}
+        <div class="field-evidence">Visible evidence: ${escapeHtml(evidence || "None returned")}</div>
+      </div>`;
+    }
+
+    function renderDetail(record) {
+      const reasons = reasonsFor(record);
+      $("#detailEmpty").hidden = true;
+      $("#detailContent").hidden = false;
+      $("#recordState").textContent = record.approved ? "Approved" : "Needs review";
+      const previewFiles = previews.get(record.id);
+      const preview = previewFiles
+        ? previewFiles.map((item) => item.isPdf
+          ? `<div class="preview-page"><small>${escapeHtml(item.name)}</small><iframe title="Original authorization form" src="${item.url}"></iframe></div>`
+          : `<div class="preview-page"><small>${escapeHtml(item.name)}</small><img alt="Original authorization form page" src="${item.url}"></div>`).join("")
+        : "Original upload is not available after this browser session.";
+      $("#detailContent").innerHTML = `
+        <div class="source-line"><span>${escapeHtml(record.source_filename)}</span><span>Page${record.source_pages.length === 1 ? "" : "s"} ${escapeHtml(record.source_pages.join(", "))}</span></div>
+        <div class="review-alert ${reasons.length ? "" : "ok"}">${reasons.length ? `<strong>Review required</strong><br>${reasons.map(escapeHtml).join(" · ")}` : "No automatic review flags. Verify the values before approval."}</div>
+        <form id="correctionForm">
+          <div class="fields">
+            ${fieldMarkup(record, "first_name", "First name", record.first_name)}
+            ${fieldMarkup(record, "last_name", "Last name", record.last_name)}
+            ${fieldMarkup(record, "id_number", "ID number", record.id_number)}
+            ${fieldMarkup(record, "central_numbers", "Central number(s)", record.central_numbers)}
+            ${fieldMarkup(record, "received_date", "Sample receipt date", record.received_date)}
+            ${fieldMarkup(record, "referring_entity", "HMO / hospital", record.referring_entity)}
+            ${fieldMarkup(record, "authorization_number", "Authorization / requirement / sample number", record.authorization_number, true)}
+          </div>
+          <div class="detail-actions"><button class="button secondary" type="submit">Save corrections</button><button class="button" id="approveButton" type="button">${record.approved ? "Approved" : "Approve record"}</button></div>
+        </form>
+        <div class="preview-wrap"><h3>Original document · preview is held only in this browser</h3><div class="preview">${preview}</div></div>`;
+      $("#correctionForm").addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const form = new FormData(event.currentTarget);
+        const body = Object.fromEntries(form.entries());
+        body.central_numbers = body.central_numbers.split(",").map((item) => item.trim()).filter(Boolean);
+        await saveRecord(record, body);
+      });
+      $("#approveButton").addEventListener("click", async () => {
+        const form = new FormData($("#correctionForm"));
+        const body = Object.fromEntries(form.entries());
+        body.central_numbers = body.central_numbers.split(",").map((item) => item.trim()).filter(Boolean);
+        body.approved = true;
+        await saveRecord(record, body);
+      });
+    }
+
+    function selectRecord(id) {
+      selectedId = id;
+      const record = records.find((item) => item.id === id);
+      renderList();
+      if (record) renderDetail(record);
+    }
+
+    async function saveRecord(record, body) {
+      try {
+        const response = await fetch(`/api/records/${encodeURIComponent(record.id)}`, {
+          method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body)
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.detail || "Could not save this record.");
+        Object.assign(record, result);
+        renderList();
+        renderDetail(record);
+        $("#uploadStatus").textContent = "Record saved.";
+      } catch (error) {
+        $("#uploadStatus").textContent = error.message;
+      }
+    }
+
+    $("#chooseButton").addEventListener("click", () => $("#fileInput").click());
+    $("#fileInput").addEventListener("change", (event) => {
+      $("#uploadButton").disabled = !event.target.files.length || !modelReady || !$("#externalConsent").checked;
+      $("#uploadStatus").textContent = `${event.target.files.length} file(s) selected.`;
+    });
+    $("#externalConsent").addEventListener("change", () => {
+      $("#uploadButton").disabled = !$("#fileInput").files.length || !modelReady || !$("#externalConsent").checked;
+    });
+    $("#uploadButton").addEventListener("click", async () => {
+      const files = [...$("#fileInput").files];
+      if (!files.length) return;
+      if (!$("#externalConsent").checked) {
+        $("#uploadStatus").textContent = "Confirm authorization for external Gemini processing before uploading.";
+        return;
+      }
+      const grouped = $("#groupPages").checked;
+      if (grouped && files.some((file) => file.name.toLowerCase().endsWith(".pdf"))) {
+        $("#uploadStatus").textContent = "Grouped mode accepts image pages; PDFs already keep their pages together.";
+        return;
+      }
+      const button = $("#uploadButton");
+      const progress = $("#uploadProgress");
+      const groups = grouped ? [files] : files.map((file) => [file]);
+      button.disabled = true;
+      $("#chooseButton").disabled = true;
+      progress.hidden = false;
+      progress.value = 0;
+      const errors = [];
+      let completed = 0;
+      let successfulForms = 0;
+      let recordsAdded = 0;
+      try {
+        for (let index = 0; index < groups.length; index++) {
+          const currentFiles = groups[index];
+          const file = currentFiles[0];
+          $("#uploadStatus").textContent = grouped
+            ? `Extracting one form from ${file.name} and ${files.length - 1} additional page(s)…`
+            : `Extracting form ${index + 1} of ${groups.length}: ${file.name}`;
+          const body = new FormData();
+          currentFiles.forEach((currentFile) => body.append("files", currentFile));
+          if (grouped) body.append("group_images", "true");
+          body.append("external_processing_consent", "true");
+          const response = await fetch("/api/extract", { method: "POST", body });
+          const result = await response.json();
+          if (!response.ok) {
+            errors.push(`${file.name}: ${result.detail || "Extraction failed."}`);
+          } else {
+            for (const item of result.errors) errors.push(`${item.filename}: ${item.error}`);
+            successfulForms += result.documents.length;
+            for (const document of result.documents) {
+              const previewFiles = currentFiles.map((currentFile) => ({
+                name: currentFile.name,
+                isPdf: currentFile.name.toLowerCase().endsWith(".pdf"),
+                url: URL.createObjectURL(currentFile)
+              }));
+              recordsAdded += document.records.length;
+              document.records.forEach((record) => {
+                previews.set(record.id, previewFiles);
+                records.unshift(record);
+              });
+            }
+          }
+          completed++;
+          progress.value = Math.round(completed * 100 / groups.length);
+        }
+        renderList();
+        if (records.length) selectRecord(records[0].id);
+        const message = `${completed} form(s) attempted; ${successfulForms} succeeded and ${recordsAdded} record(s) added.`;
+        $("#uploadStatus").textContent = [message, ...errors].join(" ");
+        $("#fileInput").value = "";
+      } catch (error) {
+        $("#uploadStatus").textContent = error.message;
+      } finally {
+        $("#chooseButton").disabled = false;
+        button.disabled = !modelReady || !$("#externalConsent").checked || !$("#fileInput").files.length;
+        window.setTimeout(() => { progress.hidden = true; }, 1800);
+      }
+    });
+
+    async function loadRecords() {
+      try {
+        const response = await fetch("/api/records");
+        if (!response.ok) throw new Error("Could not load saved records.");
+        records.push(...await response.json());
+        renderList();
+      } catch (error) {
+        $("#uploadStatus").textContent = error.message;
+      }
+    }
+    loadRecords();
+    checkModel();
+  </script>
+</body>
+</html>
