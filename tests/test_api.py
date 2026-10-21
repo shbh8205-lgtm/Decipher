@@ -197,6 +197,63 @@ class ExtractionApiTests(unittest.TestCase):
         self.assertEqual(context.exception.status_code, 502)
         self.assertIn("no text", context.exception.detail)
 
+    def test_gemini_503_is_retried_and_succeeds(self) -> None:
+        response = {
+            "status": "completed",
+            "steps": [{
+                "type": "model_output",
+                "content": [{"type": "text", "text": json.dumps({"first_name": "Maya"})}],
+            }],
+        }
+        attempts = 0
+
+        async def handler(request: httpx.Request) -> httpx.Response:
+            nonlocal attempts
+            attempts += 1
+            if attempts == 1:
+                return httpx.Response(503)
+            return httpx.Response(200, json=response)
+
+        original_client = httpx.AsyncClient
+        mock_transport = httpx.MockTransport(handler)
+        with patch.object(main, "GEMINI_API_KEY", "test-key"), patch.object(
+            main.asyncio, "sleep", new=AsyncMock()
+        ):
+            with patch.object(
+                main.httpx,
+                "AsyncClient",
+                side_effect=lambda **kwargs: original_client(transport=mock_transport, **kwargs),
+            ):
+                result = asyncio.run(main.extract_once([(1, b"jpeg-bytes")], "test prompt"))
+
+        self.assertEqual(result, {"first_name": "Maya"})
+        self.assertEqual(attempts, 2)
+
+    def test_persistent_gemini_503_reports_temporary_unavailability(self) -> None:
+        attempts = 0
+
+        async def handler(request: httpx.Request) -> httpx.Response:
+            nonlocal attempts
+            attempts += 1
+            return httpx.Response(503)
+
+        original_client = httpx.AsyncClient
+        mock_transport = httpx.MockTransport(handler)
+        with patch.object(main, "GEMINI_API_KEY", "test-key"), patch.object(
+            main.asyncio, "sleep", new=AsyncMock()
+        ):
+            with patch.object(
+                main.httpx,
+                "AsyncClient",
+                side_effect=lambda **kwargs: original_client(transport=mock_transport, **kwargs),
+            ):
+                with self.assertRaises(main.HTTPException) as context:
+                    asyncio.run(main.extract_once([(1, b"jpeg-bytes")], "test prompt"))
+
+        self.assertEqual(context.exception.status_code, 502)
+        self.assertEqual(attempts, main.GEMINI_MAX_ATTEMPTS)
+        self.assertIn("remained unavailable (HTTP 503)", context.exception.detail)
+
     def test_upload_requires_external_processing_consent(self) -> None:
         with TestClient(main.app) as client:
             response = client.post(

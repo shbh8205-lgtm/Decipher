@@ -1,4 +1,5 @@
 import base64
+import asyncio
 import json
 import os
 import sqlite3
@@ -30,6 +31,7 @@ GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/interactions"
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 MAX_PAGES = 12
 MIN_CONFIDENCE = 0.75
+GEMINI_MAX_ATTEMPTS = 3
 ALLOWED_EXTENSIONS = {".pdf", ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".webp"}
 
 ENTITY_ALIASES = {
@@ -343,18 +345,32 @@ async def extract_once(pages: list[tuple[int, bytes]], prompt: str) -> dict[str,
         )
     try:
         async with httpx.AsyncClient(timeout=180) as client:
-            response = await client.post(
-                GEMINI_API_URL,
-                headers={"x-goog-api-key": GEMINI_API_KEY},
-                json=payload,
-                follow_redirects=False,
-            )
-            response.raise_for_status()
+            for attempt in range(GEMINI_MAX_ATTEMPTS):
+                try:
+                    response = await client.post(
+                        GEMINI_API_URL,
+                        headers={"x-goog-api-key": GEMINI_API_KEY},
+                        json=payload,
+                        follow_redirects=False,
+                    )
+                    response.raise_for_status()
+                    break
+                except httpx.HTTPStatusError as error:
+                    if error.response.status_code == 503 and attempt + 1 < GEMINI_MAX_ATTEMPTS:
+                        await asyncio.sleep(attempt + 1)
+                        continue
+                    raise
     except httpx.HTTPStatusError as error:
         if error.response.status_code in {401, 403}:
             detail = "Gemini rejected the API key or access to the selected model."
         elif error.response.status_code == 429:
             detail = "Gemini rate limit or quota reached. Try again later or check your API project quota."
+        elif error.response.status_code == 503:
+            detail = (
+                f"Gemini remained unavailable (HTTP 503) after {GEMINI_MAX_ATTEMPTS} attempts. "
+                "Wait a few minutes and try again; if it continues, check Google's service status "
+                "and whether NetFree is interrupting the connection."
+            )
         elif error.response.status_code == 404:
             api_message = ""
             try:

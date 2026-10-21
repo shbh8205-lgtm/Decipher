@@ -51,6 +51,9 @@ record; the document's central-number list and shared patient fields are repeate
 - The Gemini integration uses the Interactions API, sends `store: false` to avoid retaining
   interaction history there, and requests JSON matching the extraction schema. Set
   `GEMINI_MODEL` to an available model ID, such as `gemini-3.8-flash`.
+- Temporary Gemini HTTP 503 responses are retried up to three times with a short backoff.
+  Persistent 503 errors are reported as temporary service unavailability; wait and retry, then
+  check Google's service status and network filtering if the issue continues.
 - If extraction reports HTTP 404, confirm `GEMINI_MODEL` is an available model ID and that NetFree
   allows the server to access `generativelanguage.googleapis.com` without replacing/blocking the
   Gemini API response. The application shows Gemini's returned error message when available.
