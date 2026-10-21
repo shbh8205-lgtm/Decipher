@@ -1,9 +1,9 @@
 # Decipher
 
-Decipher turns authorization-form scans and photos into editable lab records. It groups PDF pages
-or explicitly selected image pages into one form, extracts visible values with Gemini, validates
-common fields, and flags records that need human review. Each distinct authorization becomes a
-record; the document's central-number list and shared patient fields are repeated on each record.
+Decipher turns authorization-form scans and photos into editable lab records. It analyzes each PDF
+page separately or groups explicitly selected image pages into one form, extracts visible values
+with Gemini, validates common fields, and flags records that need human review. Each distinct
+authorization becomes a record; shared patient fields are repeated on each record.
 
 ## Configure and run locally
 
@@ -43,7 +43,9 @@ record; the document's central-number list and shared patient fields are repeate
   Use the grouping option to treat selected images as pages from one photographed/scanned form;
   PDFs already group their pages automatically.
 - PDFs are rendered at 250 DPI; image orientation is corrected and images are normalized before
-  extraction. All pages of one form are sent to Gemini together.
+  extraction. PDF pages are extracted individually, and the source page number is stored with
+  each resulting authorization record. Image pages selected with the grouping option are treated
+  together as one form.
 - Each form is read twice independently. Disagreements are surfaced as review notes; number
   candidates found in either pass are retained rather than silently discarded.
 - Uploads are disabled until an operator confirms authorization for external Gemini processing.

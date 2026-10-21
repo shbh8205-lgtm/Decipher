@@ -315,7 +315,7 @@
       }
       const grouped = $("#groupPages").checked;
       if (grouped && files.some((file) => file.name.toLowerCase().endsWith(".pdf"))) {
-        $("#uploadStatus").textContent = "Grouped mode accepts image pages; PDFs already keep their pages together.";
+        $("#uploadStatus").textContent = "Grouped mode accepts image pages; PDFs are analyzed one page at a time automatically.";
         return;
       }
       const button = $("#uploadButton");
@@ -348,7 +348,6 @@
             for (const item of result.errors) errors.push(`${item.filename}: ${item.error}`);
             successfulForms += result.documents.length;
             for (const document of result.documents) {
-              const thumbnail = `data:image/jpeg;base64,${document.preview_thumbnail}`;
               const previewFiles = currentFiles.map((currentFile) => ({
                 name: currentFile.name,
                 isPdf: currentFile.name.toLowerCase().endsWith(".pdf"),
@@ -356,8 +355,17 @@
               }));
               recordsAdded += document.records.length;
               document.records.forEach((record) => {
-                previews.set(record.id, previewFiles);
-                thumbnails.set(record.id, thumbnail);
+                const pagePreviewFiles = previewFiles.map((previewFile) => ({
+                  ...previewFile,
+                  url: previewFile.isPdf && record.source_pages.length === 1
+                    ? `${previewFile.url}#page=${record.source_pages[0]}`
+                    : previewFile.url
+                }));
+                previews.set(record.id, pagePreviewFiles);
+                thumbnails.set(
+                  record.id,
+                  `data:image/jpeg;base64,${record.preview_thumbnail || document.preview_thumbnail}`
+                );
                 records.unshift(record);
               });
             }

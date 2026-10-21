@@ -126,7 +126,7 @@ EXTRACTION_SCHEMA: dict[str, Any] = {
     "additionalProperties": False,
 }
 
-EXTRACTION_PROMPT = """Read all pages of this medical payment authorization form as one document.
+EXTRACTION_PROMPT = """Read the supplied page or grouped pages of this medical payment authorization form.
 Return only the requested structured data. Do not infer missing or illegible values: use null,
 an empty list, or a note as appropriate. Keep Hebrew only names and visible number strings as written.
 
@@ -750,6 +750,40 @@ async def upload_documents(
             pages = normalize_document(filename, content)
             if not pages:
                 raise ValueError("No readable pages found.")
+            if Path(filename).suffix.casefold() == ".pdf":
+                records = []
+                page_errors = []
+                for page_number, page_image in pages:
+                    try:
+                        extracted = await extract_document([(page_number, page_image)])
+                        records.extend(
+                            save_records(filename, [(page_number, page_image)], extracted)
+                        )
+                    except HTTPException as error:
+                        page_errors.append({
+                            "filename": filename,
+                            "error": f"Page {page_number}: {error.detail}",
+                        })
+                    except (ValueError, KeyError, TypeError) as error:
+                        page_errors.append({
+                            "filename": filename,
+                            "error": f"Page {page_number}: {error}",
+                        })
+                errors.extend(page_errors)
+                if records:
+                    documents.append({
+                        "upload_index": index,
+                        "filename": filename,
+                        "records": records,
+                        "preview_thumbnail": records[0]["preview_thumbnail"],
+                    })
+                elif not page_errors:
+                    errors.append({
+                        "filename": filename,
+                        "error": "No records were extracted from this PDF.",
+                    })
+                continue
+
             extracted = await extract_document(pages)
             records = save_records(filename, pages, extracted)
             documents.append({

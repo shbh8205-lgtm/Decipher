@@ -285,6 +285,70 @@ class ExtractionApiTests(unittest.TestCase):
         ):
             main.normalize_document("many-pages.pdf", pdf_bytes)
 
+    def test_pdf_extracts_each_page_individually_into_records(self) -> None:
+        page_count = 11
+        document = pymupdf.open()
+        for _ in range(page_count):
+            document.new_page(width=72, height=72)
+        pdf_bytes = document.tobytes()
+        document.close()
+
+        async def extract_page(pages: list[tuple[int, bytes]]) -> dict:
+            page_number = pages[0][0]
+            return {
+                "first_name": "Maya",
+                "last_name": "Cohen",
+                "id_number": "123456782",
+                "central_numbers": [f"C-{page_number}"],
+                "received_date": "12/04/2025",
+                "referring_entity": "Clalit",
+                "authorizations": [{
+                    "number": f"A-{page_number}",
+                    "label": "commitment",
+                    "confidence": 0.95,
+                    "evidence": f"Page {page_number} commitment",
+                }],
+                "field_confidence": {
+                    "first_name": 0.95,
+                    "last_name": 0.95,
+                    "id_number": 0.95,
+                    "central_numbers": 0.95,
+                    "received_date": 0.95,
+                    "referring_entity": 0.95,
+                },
+                "evidence": {
+                    "first_name": "Maya",
+                    "last_name": "Cohen",
+                    "id_number": "123456782",
+                    "central_numbers": f"Central {page_number}",
+                    "received_date": "Received stamp",
+                    "referring_entity": "Clalit logo",
+                },
+                "notes": [],
+            }
+
+        extractor = AsyncMock(side_effect=extract_page)
+        with patch.object(main, "extract_document", new=extractor):
+            with TestClient(main.app) as client:
+                response = client.post(
+                    "/api/extract",
+                    data={"external_processing_consent": "true"},
+                    files=[("files", ("commitments.pdf", pdf_bytes, "application/pdf"))],
+                )
+
+        self.assertEqual(response.status_code, 200)
+        result = response.json()
+        self.assertEqual(result["errors"], [])
+        self.assertEqual(len(result["documents"]), 1)
+        records = result["documents"][0]["records"]
+        self.assertEqual(len(records), page_count)
+        self.assertEqual(extractor.await_count, page_count)
+        self.assertEqual([record["source_pages"] for record in records], [[page] for page in range(1, page_count + 1)])
+        self.assertEqual(
+            [record["authorization_number"] for record in records],
+            [f"A-{page}" for page in range(1, page_count + 1)],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
