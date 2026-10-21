@@ -56,6 +56,8 @@
     .button:hover { background: var(--teal-dark); }
     .button:disabled { opacity: .55; cursor: wait; }
     .button.secondary { color: var(--teal-dark); background: #e8f3f0; }
+    .button.export { padding: 7px 10px; font-size: 12px; }
+    .button.disabled { opacity: .55; }
     input[type=file] { display: none; }
     #uploadStatus { margin: 12px 2px 0; color: var(--muted); font-size: 13px; min-height: 18px; }
     .workspace { display: grid; grid-template-columns: minmax(320px, .85fr) minmax(440px, 1.15fr); gap: 18px; margin-top: 18px; align-items: start; }
@@ -134,7 +136,7 @@
     <progress id="uploadProgress" class="progress-track" max="100" value="0" hidden></progress>
     <section class="workspace">
       <div class="panel">
-        <div class="panel-head"><h2>Records</h2><span class="count" id="recordCount">0</span></div>
+        <div class="panel-head"><h2>Records</h2><div class="actions"><span class="count" id="recordCount">0</span><a id="exportButton" class="button secondary export" href="/api/records.csv" download>Export CSV</a></div></div>
         <div class="records" id="recordsList"><div class="empty">No records yet.<br>Upload a form to get started.</div></div>
       </div>
       <div class="panel">
@@ -182,6 +184,8 @@
 
     function renderList() {
       $("#recordCount").textContent = records.length;
+      $("#exportButton").setAttribute("aria-disabled", records.length ? "false" : "true");
+      $("#exportButton").classList.toggle("disabled", !records.length);
       if (!records.length) {
         $("#recordsList").innerHTML = '<div class="empty">No records yet.<br>Upload a form to get started.</div>';
         return;
@@ -203,6 +207,13 @@
         button.addEventListener("click", () => selectRecord(button.dataset.id));
       });
     }
+
+    $("#exportButton").addEventListener("click", (event) => {
+      if (!records.length) {
+        event.preventDefault();
+        $("#uploadStatus").textContent = "There are no records to export yet.";
+      }
+    });
 
     function fieldMarkup(record, name, label, value, wide = false) {
       const confidenceField = name;

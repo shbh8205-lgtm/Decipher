@@ -1,4 +1,5 @@
 import asyncio
+import csv
 import json
 import tempfile
 import unittest
@@ -78,6 +79,15 @@ class ExtractionApiTests(unittest.TestCase):
                 thumbnail = response.json()["documents"][0]["preview_thumbnail"]
                 self.assertTrue(thumbnail.startswith("/9j/"))
                 self.assertEqual(client.get("/api/records").json()[0]["id"], record["id"])
+                exported = client.get("/api/records.csv")
+                self.assertEqual(exported.status_code, 200)
+                self.assertIn("attachment;", exported.headers["content-disposition"])
+                rows = list(csv.DictReader(exported.text.lstrip("\ufeff").splitlines()))
+                self.assertEqual(len(rows), 1)
+                self.assertEqual(rows[0]["ID Number (text)"], '="123456782"')
+                self.assertEqual(rows[0]["Source Filename"], "authorization.png")
+                self.assertEqual(rows[0]["Source Page(s)"], "1")
+                self.assertEqual(rows[0]["Authorization Number"], "A-100")
                 corrected = client.patch(
                     f"/api/records/{record['id']}",
                     json={"id_number": "123456789"},

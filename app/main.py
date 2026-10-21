@@ -1,11 +1,12 @@
 import base64
 import asyncio
+import csv
 import json
 import os
 import sqlite3
 from contextlib import closing
 from datetime import datetime, timezone
-from io import BytesIO
+from io import BytesIO, StringIO
 from pathlib import Path
 from typing import Annotated, Any
 from uuid import uuid4
@@ -13,7 +14,7 @@ from uuid import uuid4
 import httpx
 import pymupdf
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from PIL import Image, ImageOps
 from pydantic import BaseModel, ConfigDict
@@ -238,6 +239,51 @@ def record_to_dict(row: sqlite3.Row) -> dict[str, Any]:
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
     }
+
+
+def csv_text_cell(value: Any) -> str:
+    text = "" if value is None else str(value)
+    if text.lstrip().startswith(("=", "+", "-", "@", "\t", "\r")):
+        return "'" + text
+    return text
+
+
+def records_csv(records: list[dict[str, Any]]) -> str:
+    output = StringIO(newline="")
+    writer = csv.writer(output, lineterminator="\r\n")
+    writer.writerow([
+        "First Name",
+        "Last Name",
+        "ID Number (text)",
+        "Central Number(s)",
+        "Sample Receipt Date",
+        "Referring Entity",
+        "Authorization Number",
+        "Requires Review",
+        "Review Reasons",
+        "Approved",
+        "Source Filename",
+        "Source Page(s)",
+    ])
+    for record in records:
+        id_number = record["id_number"] or ""
+        # Excel otherwise drops leading zeroes from numeric-looking ID values.
+        excel_text_id = f'="{id_number.replace(chr(34), chr(34) * 2)}"' if id_number else ""
+        writer.writerow([
+            csv_text_cell(record["first_name"]),
+            csv_text_cell(record["last_name"]),
+            excel_text_id,
+            csv_text_cell("; ".join(record["central_numbers"])),
+            csv_text_cell(record["received_date"]),
+            csv_text_cell(record["referring_entity"]),
+            csv_text_cell(record["authorization_number"]),
+            "Yes" if record["review_reasons"] else "No",
+            csv_text_cell("; ".join(record["review_reasons"])),
+            "Yes" if record["approved"] else "No",
+            csv_text_cell(record["source_filename"]),
+            csv_text_cell(", ".join(str(page) for page in record["source_pages"])),
+        ])
+    return "\ufeff" + output.getvalue()
 
 
 def normalize_entity(value: str | None) -> str | None:
@@ -629,6 +675,16 @@ def list_records() -> list[dict[str, Any]]:
             "SELECT * FROM authorization_records ORDER BY created_at DESC"
         ).fetchall()
     return [record_to_dict(row) for row in rows]
+
+
+@app.get("/api/records.csv")
+def export_records_csv() -> Response:
+    records = list_records()
+    return Response(
+        content=records_csv(records),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="decipher-authorizations.csv"'},
+    )
 
 
 @app.post("/api/extract")

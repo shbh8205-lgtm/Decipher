@@ -75,10 +75,13 @@ record; the document's central-number list and shared patient fields are repeate
   Confidence is a model-provided signal, not a measured accuracy guarantee.
 - The UI lets an operator correct fields and approve a record. An approval does not remove its
   review reasons; it records the operator's decision.
+- Use **Export CSV** above the records list or visit `/api/records.csv` to download all saved
+  authorization records. The UTF-8 CSV includes review reasons and source filename/pages; ID
+  values are emitted in an Excel-compatible text form to preserve leading zeroes.
 
 ## Limitations
 
 There is no labeled benchmark in this workspace, so extraction accuracy is not claimed. Review
 and correct records against the project's ground truth before using it for operational decisions.
 The hospital/entity list and date plausibility limits should be tuned against the lab's actual
-forms. No Excel export or laboratory API integration is included in this initial application.
+forms. No laboratory API integration is included in this initial application.
