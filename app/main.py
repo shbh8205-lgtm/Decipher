@@ -3,22 +3,30 @@ import asyncio
 import csv
 import json
 import os
+import re
+import secrets
 import sqlite3
+import time
 from contextlib import closing
 from datetime import datetime, timezone
 from io import BytesIO, StringIO
 from pathlib import Path
 from typing import Annotated, Any
 from uuid import uuid4
+from hashlib import sha256
+from base64 import b64encode
 
+import bcrypt
 import httpx
 import pymupdf
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse, Response
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from PIL import Image, ImageOps
 from pydantic import BaseModel, ConfigDict
+from starlette.middleware.sessions import SessionMiddleware
 
+from app.barcodes import decode_page_barcodes, verify_central_numbers
 from app.validation import normalize_israeli_id, normalize_received_date
 
 
@@ -29,10 +37,17 @@ DATABASE_PATH = DATA_DIR / "decipher.sqlite3"
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
 GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/interactions"
+SESSION_SECRET = os.getenv("SESSION_SECRET") or secrets.token_urlsafe(32)
+DEMO_BANNER = os.getenv("DEMO_BANNER", "").strip().casefold() in {"1", "true", "yes", "on"}
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 MAX_PAGES = 12
 MIN_CONFIDENCE = 0.75
 GEMINI_MAX_ATTEMPTS = 3
+LOGIN_LIMIT = 10
+LOGIN_WINDOW_SECONDS = 15 * 60
+EXTRACT_LIMIT = 10
+EXTRACT_WINDOW_SECONDS = 60 * 60
+SESSION_MAX_AGE_SECONDS = 12 * 60 * 60
 ALLOWED_EXTENSIONS = {".pdf", ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".webp"}
 
 ENTITY_ALIASES = {
@@ -172,8 +187,134 @@ def gemini_response_schema(schema: dict[str, Any]) -> dict[str, Any]:
         result["maximum"] = schema["maximum"]
     return result
 
-app = FastAPI(title="Decipher", version="0.1.0")
+app = FastAPI(title="Decipher", version="0.1.0", docs_url=None, redoc_url=None, openapi_url=None)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+LOGIN_HTML = """<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Decipher | Sign in</title><style>
+body{margin:0;background:#f3f7f5;color:#18302f;font:16px system-ui,sans-serif;min-height:100vh;display:grid;place-items:center}
+main{width:min(390px,calc(100% - 40px));padding:28px;background:#fff;border:1px solid #dce6e3;border-radius:14px;box-shadow:0 2px 8px #19302f08}
+h1{margin:0 0 8px;font-size:24px}p{color:#617472;line-height:1.5}label{display:block;margin-top:16px;font-weight:600;font-size:13px}
+input{box-sizing:border-box;width:100%;margin-top:6px;padding:11px;border:1px solid #dce6e3;border-radius:8px;font:inherit}
+button{width:100%;margin-top:20px;padding:11px;border:0;border-radius:8px;background:#087f72;color:#fff;font:inherit;font-weight:650;cursor:pointer}
+.error{padding:10px;color:#a33434;background:#fff0f0;border-radius:8px}
+</style></head><body><main><h1>Decipher</h1><p>Sign in to the authorization review workspace.</p>
+{error}<form method="post" action="/login"><label for="username">Username</label>
+<input id="username" name="username" autocomplete="username" maxlength="128" required>
+<label for="password">Password</label><input id="password" name="password" type="password" autocomplete="current-password" maxlength="1024" required>
+<button type="submit">Sign in</button></form></main></body></html>"""
+
+
+def configured_users() -> dict[str, bytes]:
+    users: dict[str, bytes] = {}
+    for entry in os.getenv("APP_USERS", "").split(","):
+        username, separator, password_hash = entry.strip().partition(":")
+        if separator and username.strip() and password_hash.startswith("$2"):
+            users[username.strip()] = password_hash.encode("ascii", errors="ignore")
+    single_hash = os.getenv("APP_PASSWORD_HASH", "")
+    if single_hash.startswith("$2") and not users:
+        users["operator"] = single_hash.encode("ascii", errors="ignore")
+    return users
+
+
+_DUMMY_PASSWORD_HASH = bcrypt.hashpw(
+    b"decipher-invalid-user-password",
+    bcrypt.gensalt(),
+)
+_RATE_BUCKETS: dict[tuple[str, str], tuple[float, int]] = {}
+
+
+def client_key(request: Request) -> str:
+    return request.client.host if request.client else "unknown"
+
+
+def rate_limited(key: tuple[str, str], limit: int, window_seconds: int) -> bool:
+    now = time.monotonic()
+    expired = [
+        bucket for bucket, (started, _) in _RATE_BUCKETS.items()
+        if now - started >= window_seconds
+    ]
+    for bucket in expired:
+        _RATE_BUCKETS.pop(bucket, None)
+    started, count = _RATE_BUCKETS.get(key, (now, 0))
+    if now - started >= window_seconds:
+        started, count = now, 0
+    count += 1
+    _RATE_BUCKETS[key] = (started, count)
+    return count > limit
+
+
+def password_matches(username: str, password: str) -> bool:
+    users = configured_users()
+    expected_hash = users.get(username, _DUMMY_PASSWORD_HASH)
+    try:
+        valid = bcrypt.checkpw(password.encode("utf-8"), expected_hash)
+    except (ValueError, TypeError):
+        valid = bcrypt.checkpw(b"invalid-password", _DUMMY_PASSWORD_HASH)
+    return username in users and valid
+
+
+def security_headers(response: Response) -> Response:
+    inline_hashes = []
+    html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    for script in re.findall(r"<script(?:\s[^>]*)?>(.*?)</script\s*>", html, re.IGNORECASE | re.DOTALL):
+        digest = b64encode(sha256(script.encode("utf-8")).digest()).decode("ascii")
+        inline_hashes.append(f"'sha256-{digest}'")
+    script_sources = " ".join(["'self'", *inline_hashes])
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; "
+        f"script-src {script_sources}; "
+        "style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data: blob:; "
+        "frame-src 'self' blob:; "
+        "object-src 'none'; "
+        "base-uri 'self'; "
+        "form-action 'self'; "
+        "frame-ancestors 'none'"
+    )
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Referrer-Policy"] = "same-origin"
+    return response
+
+
+@app.middleware("http")
+async def protect_and_harden(request: Request, call_next: Any) -> Response:
+    path = request.url.path
+    is_api = path == "/api" or path.startswith("/api/")
+    if path != "/healthz" and (path == "/" or is_api) and not request.session.get("username"):
+        if is_api:
+            response: Response = Response(
+                content='{"detail":"Authentication required"}',
+                status_code=401,
+                media_type="application/json",
+            )
+        else:
+            response = RedirectResponse("/login", status_code=303)
+        return security_headers(response)
+    if path == "/api/extract" and request.method == "POST":
+        if rate_limited(
+            ("extract", client_key(request)),
+            EXTRACT_LIMIT,
+            EXTRACT_WINDOW_SECONDS,
+        ):
+            return security_headers(Response(
+                content='{"detail":"Rate limit exceeded. Try again later."}',
+                status_code=429,
+                media_type="application/json",
+            ))
+    return security_headers(await call_next(request))
+
+
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=SESSION_SECRET,
+    session_cookie="decipher_session",
+    max_age=SESSION_MAX_AGE_SECONDS,
+    same_site="lax",
+    https_only=True,
+)
 
 
 def connect_db() -> sqlite3.Connection:
@@ -201,6 +342,7 @@ def initialize_db() -> None:
                 field_confidence TEXT NOT NULL,
                 evidence TEXT NOT NULL,
                 preview_thumbnail TEXT,
+                barcode_verification TEXT NOT NULL DEFAULT '[]',
                 review_reasons TEXT NOT NULL,
                 approved INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL,
@@ -215,6 +357,71 @@ def initialize_db() -> None:
         if "preview_thumbnail" not in columns:
             connection.execute(
                 "ALTER TABLE authorization_records ADD COLUMN preview_thumbnail TEXT"
+            )
+        if "barcode_verification" not in columns:
+            connection.execute(
+                "ALTER TABLE authorization_records ADD COLUMN barcode_verification TEXT NOT NULL DEFAULT '[]'"
+            )
+        connection.commit()
+
+
+def seed_demo_records() -> None:
+    if os.getenv("DEMO_SEED", "").strip() != "1":
+        return
+    now = datetime.now(timezone.utc).isoformat()
+    received_date = datetime.now(timezone.utc).strftime("%d/%m/%Y")
+    confidence = json.dumps({
+        "first_name": 1,
+        "last_name": 1,
+        "id_number": 1,
+        "central_numbers": 1,
+        "received_date": 1,
+        "referring_entity": 1,
+        "authorization_number": 1,
+    })
+    evidence = json.dumps({"demo": "Synthetic sample data only."})
+    samples = [
+        ("Sample", "Patient A", "930001", "DEMO-001", "Clalit"),
+        ("Sample", "Patient B", "930002", "DEMO-002", "Maccabi"),
+        ("Sample", "Patient C", "930003", "DEMO-003", "Meuhedet"),
+    ]
+    with closing(connect_db()) as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        if connection.execute(
+            "SELECT 1 FROM authorization_records LIMIT 1"
+        ).fetchone():
+            connection.rollback()
+            return
+        for first_name, last_name, central_number, authorization_number, entity in samples:
+            connection.execute(
+                """
+                INSERT INTO authorization_records (
+                    id, source_filename, source_pages, first_name, last_name, id_number,
+                    central_numbers, received_date, referring_entity, authorization_number,
+                    field_confidence, evidence, preview_thumbnail, barcode_verification,
+                    review_reasons, approved, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    str(uuid4()),
+                    "DEMO SAMPLE ONLY",
+                    "[1]",
+                    first_name,
+                    last_name,
+                    None,
+                    json.dumps([central_number]),
+                    received_date,
+                    entity,
+                    authorization_number,
+                    confidence,
+                    evidence,
+                    None,
+                    "[]",
+                    json.dumps(["Demo seed: sample-only data"]),
+                    0,
+                    now,
+                    now,
+                ),
             )
         connection.commit()
 
@@ -234,6 +441,7 @@ def record_to_dict(row: sqlite3.Row) -> dict[str, Any]:
         "field_confidence": json.loads(row["field_confidence"]),
         "evidence": json.loads(row["evidence"]),
         "preview_thumbnail": row["preview_thumbnail"],
+        "barcode_verification": json.loads(row["barcode_verification"]),
         "review_reasons": json.loads(row["review_reasons"]),
         "approved": bool(row["approved"]),
         "created_at": row["created_at"],
@@ -259,6 +467,7 @@ def records_csv(records: list[dict[str, Any]]) -> str:
         "Sample Receipt Date",
         "Referring Entity",
         "Authorization Number",
+        "Central Verification",
         "Requires Review",
         "Review Reasons",
         "Approved",
@@ -277,6 +486,10 @@ def records_csv(records: list[dict[str, Any]]) -> str:
             csv_text_cell(record["received_date"]),
             csv_text_cell(record["referring_entity"]),
             csv_text_cell(record["authorization_number"]),
+            csv_text_cell("; ".join(
+                f'{item["number"]}: {item["status"]}'
+                for item in record["barcode_verification"]
+            )),
             "Yes" if record["review_reasons"] else "No",
             csv_text_cell("; ".join(record["review_reasons"])),
             "Yes" if record["approved"] else "No",
@@ -563,7 +776,14 @@ async def extract_document(pages: list[tuple[int, bytes]]) -> dict[str, Any]:
     )
     first = await extract_once(pages, EXTRACTION_PROMPT)
     second = await extract_once(pages, second_prompt)
-    return reconcile_extractions(first, second)
+    reconciled = reconcile_extractions(first, second)
+    decoded_pages = []
+    for _, content in pages:
+        decoded_pages.append(await asyncio.to_thread(decode_page_barcodes, content))
+    reconciled["decoded_central_barcodes"] = [
+        barcode for page_barcodes in decoded_pages for barcode in page_barcodes
+    ]
+    return reconciled
 
 
 def save_records(filename: str, pages: list[tuple[int, bytes]], extracted: dict[str, Any]) -> list[dict[str, Any]]:
@@ -573,7 +793,11 @@ def save_records(filename: str, pages: list[tuple[int, bytes]], extracted: dict[
     extracted["id_number"] = id_number
     extracted["received_date"] = received_date
     extracted["referring_entity"] = entity
-    central_numbers = list(dict.fromkeys(str(number).strip() for number in extracted["central_numbers"] if str(number).strip()))
+    central_numbers, barcode_verification = verify_central_numbers(
+        [str(number) for number in extracted["central_numbers"]],
+        extracted.get("decoded_central_barcodes", []),
+    )
+    extracted["central_numbers"] = central_numbers
     preview_thumbnail = make_preview_thumbnail(pages[0][1]) if pages else None
     authorizations = extracted["authorizations"] or [{"number": None, "confidence": 0, "evidence": None}]
     source_pages = [page_number for page_number, _ in pages]
@@ -582,7 +806,27 @@ def save_records(filename: str, pages: list[tuple[int, bytes]], extracted: dict[
 
     with closing(connect_db()) as connection:
         for authorization in authorizations:
-            reasons = make_review_reasons(extracted, id_valid, date_reason, entity)
+            accepted_verification = [
+                item for item in barcode_verification if item["accepted"]
+            ]
+            all_central_numbers_verified = bool(central_numbers) and (
+                len(accepted_verification) == len(central_numbers)
+                and all(item["status"] == "barcode_ocr_match" for item in accepted_verification)
+            )
+            review_extracted = dict(extracted)
+            if all_central_numbers_verified:
+                review_extracted["notes"] = [
+                    note for note in extracted.get("notes", [])
+                    if not note.casefold().startswith("double extraction disagreement: central numbers")
+                ]
+            reasons = make_review_reasons(review_extracted, id_valid, date_reason, entity)
+            if all_central_numbers_verified:
+                reasons = [reason for reason in reasons if reason != "Low confidence: central numbers"]
+            for verification in barcode_verification:
+                if verification["status"] == "conflict":
+                    reasons.append("Central number conflict: barcode overrides the model reading")
+                elif verification["status"] == "barcode_only":
+                    reasons.append("Central number found only in barcode; confirm")
             if not authorization.get("number"):
                 reasons.append("Missing authorization number")
             if float(authorization.get("confidence", 0)) < MIN_CONFIDENCE:
@@ -610,6 +854,7 @@ def save_records(filename: str, pages: list[tuple[int, bytes]], extracted: dict[
                 "field_confidence": json.dumps(record_confidence),
                 "evidence": json.dumps(record_evidence, ensure_ascii=False),
                 "preview_thumbnail": preview_thumbnail,
+                "barcode_verification": json.dumps(barcode_verification, ensure_ascii=False),
                 "review_reasons": json.dumps(list(dict.fromkeys(reasons)), ensure_ascii=False),
                 "created_at": now,
                 "updated_at": now,
@@ -619,11 +864,13 @@ def save_records(filename: str, pages: list[tuple[int, bytes]], extracted: dict[
                 INSERT INTO authorization_records (
                     id, source_filename, source_pages, first_name, last_name, id_number,
                     central_numbers, received_date, referring_entity, authorization_number,
-                    field_confidence, evidence, preview_thumbnail, review_reasons, created_at, updated_at
+                    field_confidence, evidence, preview_thumbnail, barcode_verification,
+                    review_reasons, created_at, updated_at
                 ) VALUES (
                     :id, :source_filename, :source_pages, :first_name, :last_name, :id_number,
                     :central_numbers, :received_date, :referring_entity, :authorization_number,
-                    :field_confidence, :evidence, :preview_thumbnail, :review_reasons, :created_at, :updated_at
+                    :field_confidence, :evidence, :preview_thumbnail, :barcode_verification,
+                    :review_reasons, :created_at, :updated_at
                 )
                 """,
                 values,
@@ -631,6 +878,7 @@ def save_records(filename: str, pages: list[tuple[int, bytes]], extracted: dict[
             records.append({**values, "source_pages": source_pages, "central_numbers": central_numbers,
                             "field_confidence": record_confidence, "evidence": record_evidence,
                             "preview_thumbnail": preview_thumbnail,
+                            "barcode_verification": barcode_verification,
                             "review_reasons": list(dict.fromkeys(reasons)), "approved": False})
         connection.commit()
     return records
@@ -652,12 +900,63 @@ class RecordCorrection(BaseModel):
 @app.on_event("startup")
 def startup() -> None:
     initialize_db()
+    seed_demo_records()
+
+
+@app.get("/healthz")
+def healthz() -> dict[str, bool]:
+    return {"ok": True}
 
 
 @app.get("/")
-def home() -> FileResponse:
-    return FileResponse(STATIC_DIR / "index.html")
+def home() -> HTMLResponse:
+    content = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    banner = (
+        '<div class="demo-banner" role="status">Demo environment - sample data only</div>'
+        if DEMO_BANNER else ""
+    )
+    content = content.replace("<!-- DEMO_BANNER -->", banner)
+    return HTMLResponse(content)
 
+@app.get("/login")
+def login_page() -> HTMLResponse:
+    return HTMLResponse(LOGIN_HTML.replace("{error}", ""))
+
+
+@app.post("/login")
+def login(
+    request: Request,
+    username: Annotated[str, Form()],
+    password: Annotated[str, Form()],
+) -> Response:
+    username = username.strip()[:128]
+    password = password[:1024]
+    key = ("login", client_key(request))
+    if rate_limited(key, LOGIN_LIMIT, LOGIN_WINDOW_SECONDS):
+        return HTMLResponse(
+            LOGIN_HTML.replace(
+                "{error}",
+                '<p class="error">Too many attempts. Try again later.</p>',
+            ),
+            status_code=429,
+        )
+    if not password_matches(username, password):
+        return HTMLResponse(
+            LOGIN_HTML.replace(
+                "{error}",
+                '<p class="error">Invalid username or password.</p>',
+            ),
+            status_code=401,
+        )
+    request.session.clear()
+    request.session["username"] = username
+    return RedirectResponse("/", status_code=303)
+
+
+@app.post("/logout")
+def logout(request: Request) -> Response:
+    request.session.clear()
+    return RedirectResponse("/login", status_code=303)
 
 @app.get("/api/status")
 def status() -> dict[str, Any]:
@@ -833,10 +1132,27 @@ def update_record(record_id: str, correction: RecordCorrection) -> dict[str, Any
         if "referring_entity" in changes:
             changes["referring_entity"] = normalize_entity(changes["referring_entity"])
         if "central_numbers" in changes:
-            changes["central_numbers"] = json.dumps(
-                list(dict.fromkeys(value.strip() for value in (changes["central_numbers"] or []) if value.strip())),
-                ensure_ascii=False,
-            )
+            corrected_central_numbers = list(dict.fromkeys(
+                value.strip() for value in (changes["central_numbers"] or []) if value.strip()
+            ))
+            if corrected_central_numbers != record["central_numbers"]:
+                changes["barcode_verification"] = json.dumps([
+                    {
+                        "number": number,
+                        "status": "manual",
+                        "barcode_value": None,
+                        "alternatives": [],
+                        "barcode_candidates": [],
+                        "accepted": True,
+                    }
+                    for number in corrected_central_numbers
+                ], ensure_ascii=False)
+                reasons = [
+                    reason for reason in reasons
+                    if not reason.startswith("Central number conflict:")
+                    and not reason.startswith("Central number found only in barcode")
+                ]
+            changes["central_numbers"] = json.dumps(corrected_central_numbers, ensure_ascii=False)
         for field in ("first_name", "last_name", "id_number", "central_numbers", "received_date",
                       "referring_entity", "authorization_number"):
             if field in changes:

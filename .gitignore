@@ -4,3 +4,9 @@
 __pycache__/
 *.py[cod]
 data/
+eval/cache/
+eval/pages/
+eval/ground_truth.csv
+eval/ground_truth_draft.csv
+eval/report.md
+eval/mismatches.csv

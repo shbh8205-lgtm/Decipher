@@ -1,12 +1,15 @@
 import asyncio
 import csv
 import json
+import os
 import tempfile
+import threading
 import unittest
 from io import BytesIO
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
+import bcrypt
 from fastapi.testclient import TestClient
 import httpx
 import pymupdf
@@ -22,11 +25,37 @@ class ExtractionApiTests(unittest.TestCase):
         self.original_database_path = main.DATABASE_PATH
         main.DATA_DIR = Path(self.directory.name)
         main.DATABASE_PATH = main.DATA_DIR / "test.sqlite3"
+        self.original_app_users = os.environ.get("APP_USERS")
+        self.original_app_password_hash = os.environ.get("APP_PASSWORD_HASH")
+        os.environ["APP_USERS"] = (
+            "test:" + bcrypt.hashpw(b"test-password", bcrypt.gensalt()).decode("ascii")
+        )
+        os.environ.pop("APP_PASSWORD_HASH", None)
+        main._RATE_BUCKETS.clear()
 
     def tearDown(self) -> None:
         main.DATA_DIR = self.original_data_dir
         main.DATABASE_PATH = self.original_database_path
+        if self.original_app_users is None:
+            os.environ.pop("APP_USERS", None)
+        else:
+            os.environ["APP_USERS"] = self.original_app_users
+        if self.original_app_password_hash is None:
+            os.environ.pop("APP_PASSWORD_HASH", None)
+        else:
+            os.environ["APP_PASSWORD_HASH"] = self.original_app_password_hash
+        main._RATE_BUCKETS.clear()
         self.directory.cleanup()
+
+    def authenticated_client(self) -> TestClient:
+        client = TestClient(main.app, base_url="https://testserver")
+        response = client.post(
+            "/login",
+            data={"username": "test", "password": "test-password"},
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 303)
+        return client
 
     def test_upload_extracts_and_returns_persisted_records(self) -> None:
         image = Image.new("RGB", (32, 32), "white")
@@ -65,7 +94,7 @@ class ExtractionApiTests(unittest.TestCase):
         }
 
         with patch.object(main, "extract_document", new=AsyncMock(return_value=extracted)):
-            with TestClient(main.app) as client:
+            with self.authenticated_client() as client:
                 response = client.post(
                     "/api/extract",
                     data={"external_processing_consent": "true"},
@@ -88,6 +117,7 @@ class ExtractionApiTests(unittest.TestCase):
                 self.assertEqual(rows[0]["Source Filename"], "authorization.png")
                 self.assertEqual(rows[0]["Source Page(s)"], "1")
                 self.assertEqual(rows[0]["Authorization Number"], "A-100")
+                self.assertEqual(rows[0]["Central Verification"], "C-10: ocr_only")
                 corrected = client.patch(
                     f"/api/records/{record['id']}",
                     json={"id_number": "123456789"},
@@ -95,6 +125,14 @@ class ExtractionApiTests(unittest.TestCase):
                 self.assertIn(
                     "Invalid Israeli ID check digit or length",
                     corrected.json()["review_reasons"],
+                )
+                central_correction = client.patch(
+                    f"/api/records/{record['id']}",
+                    json={"central_numbers": ["C-11"]},
+                )
+                self.assertEqual(
+                    central_correction.json()["barcode_verification"][0]["status"],
+                    "manual",
                 )
                 second_page = Image.new("RGB", (32, 32), "white")
                 second_page_bytes = BytesIO()
@@ -265,7 +303,7 @@ class ExtractionApiTests(unittest.TestCase):
         self.assertIn("remained unavailable (HTTP 503)", context.exception.detail)
 
     def test_upload_requires_external_processing_consent(self) -> None:
-        with TestClient(main.app) as client:
+        with self.authenticated_client() as client:
             response = client.post(
                 "/api/extract",
                 files=[("files", ("authorization.png", b"not read", "image/png"))],
@@ -329,7 +367,7 @@ class ExtractionApiTests(unittest.TestCase):
 
         extractor = AsyncMock(side_effect=extract_page)
         with patch.object(main, "extract_document", new=extractor):
-            with TestClient(main.app) as client:
+            with self.authenticated_client() as client:
                 response = client.post(
                     "/api/extract",
                     data={"external_processing_consent": "true"},
@@ -348,6 +386,46 @@ class ExtractionApiTests(unittest.TestCase):
             [record["authorization_number"] for record in records],
             [f"A-{page}" for page in range(1, page_count + 1)],
         )
+
+    def test_extract_document_runs_barcode_decoder_in_worker_thread(self) -> None:
+        extracted = {
+            "first_name": "Maya",
+            "last_name": "Cohen",
+            "id_number": "123456782",
+            "central_numbers": ["937309"],
+            "received_date": "12/04/2025",
+            "referring_entity": "Clalit",
+            "authorizations": [],
+            "field_confidence": {
+                "first_name": 0.9,
+                "last_name": 0.9,
+                "id_number": 0.9,
+                "central_numbers": 0.9,
+                "received_date": 0.9,
+                "referring_entity": 0.9,
+            },
+            "evidence": {
+                "first_name": "Maya",
+                "last_name": "Cohen",
+                "id_number": "123456782",
+                "central_numbers": "Central sticker",
+                "received_date": "Received stamp",
+                "referring_entity": "Clalit logo",
+            },
+            "notes": [],
+        }
+        thread_ids = []
+
+        def decode(_image: bytes) -> list[dict]:
+            thread_ids.append(threading.get_ident())
+            return [{"text": "937309", "format": "Code 128", "rotation": 0, "bbox": {}}]
+
+        with patch.object(main, "extract_once", new=AsyncMock(return_value=extracted)):
+            with patch.object(main, "decode_page_barcodes", side_effect=decode):
+                result = asyncio.run(main.extract_document([(1, b"page-image")]))
+
+        self.assertEqual(result["decoded_central_barcodes"][0]["text"], "937309")
+        self.assertNotEqual(thread_ids[0], threading.get_ident())
 
 
 if __name__ == "__main__":

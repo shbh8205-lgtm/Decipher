@@ -76,6 +76,11 @@
     .row-main small { display: block; margin-top: 5px; color: var(--muted); font-size: 12px; }
     .badge { flex: none; padding: 4px 8px; color: var(--amber); background: var(--amber-bg); border-radius: 20px; font-size: 11px; font-weight: 650; }
     .badge.approved { color: #19734e; background: #e6f5ec; }
+    .verification-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
+    .verification-chip { display: inline-flex; padding: 3px 7px; color: #315f59; background: #e8f3f0; border-radius: 20px; font-size: 10px; line-height: 1.35; }
+    .verification-chip.conflict, .verification-chip.barcode_only { color: var(--amber); background: var(--amber-bg); }
+    .verification-chip.ocr_only { color: var(--muted); background: #eef1f0; }
+    .verification-chip.manual { color: #19734e; background: #e6f5ec; }
     .empty { padding: 48px 22px; color: var(--muted); text-align: center; font-size: 13px; line-height: 1.6; }
     .detail-content { padding: 18px 20px 20px; }
     .source-line { display: flex; justify-content: space-between; gap: 10px; color: var(--muted); font-size: 12px; margin-bottom: 14px; }
@@ -100,6 +105,9 @@
     .privacy { margin-top: 24px; padding: 13px 16px; color: var(--muted); background: #eaf1ef; border-radius: 10px; font-size: 12px; line-height: 1.5; }
     .progress-track { width: 100%; height: 7px; margin-top: 9px; accent-color: var(--teal); }
     .progress-track[hidden] { display: none; }
+    .demo-banner { padding: 9px 16px; color: #704a00; background: #fff1cc; border-bottom: 1px solid #ecd89d; text-align: center; font-size: 13px; font-weight: 700; }
+    .logout-form { margin-left: auto; }
+    .logout-button { padding: 7px 10px; color: var(--teal-dark); background: #e8f3f0; border: 0; border-radius: 8px; font-size: 12px; font-weight: 650; }
     @media (max-width: 900px) {
       .workspace { grid-template-columns: 1fr; }
       .records { max-height: 300px; }
@@ -118,9 +126,11 @@
   </style>
 </head>
 <body>
+  <!-- DEMO_BANNER -->
   <header>
     <div class="brand"><img class="brand-mark" src="/static/decipher-mark.svg" alt=""><div>Decipher<small>Authorization review workspace</small></div></div>
     <div class="model-status"><span class="dot" id="modelDot"></span><span id="modelStatus">Checking Gemini setup…</span></div>
+    <form class="logout-form" action="/logout" method="post"><button class="logout-button" type="submit">Sign out</button></form>
   </header>
   <main>
     <section class="intro">
@@ -145,7 +155,7 @@
         <div class="detail-content" id="detailContent" hidden></div>
       </div>
     </section>
-    <div class="privacy"><strong>Privacy:</strong> document images are sent to Google Gemini for extraction. The API key stays on the server. Extracted records are saved in a local SQLite database; this prototype has no login and should not be exposed to a network. Confirm that your organization's privacy, consent, and regulatory requirements permit using Gemini for these medical documents.</div>
+    <div class="privacy"><strong>Privacy:</strong> document images are sent to Google Gemini for extraction. The API key stays on the server. Extracted records are saved in SQLite on the configured data disk. Confirm that your organization's privacy, consent, and regulatory requirements permit using Gemini for these medical documents.</div>
   </main>
   <script>
     const records = [];
@@ -180,6 +190,23 @@
 
     function reasonsFor(record) {
       return record.review_reasons || [];
+    }
+
+    function centralVerificationMarkup(record) {
+      const labels = {
+        barcode_ocr_match: "Barcode + OCR",
+        barcode_only: "Barcode only",
+        ocr_only: "OCR only",
+        conflict: "Conflict",
+        manual: "Manual",
+      };
+      const verification = record.barcode_verification || [];
+      if (!verification.length) return "";
+      return `<div class="verification-chips">${verification.map((item) => {
+        const label = labels[item.status] || "Unverified";
+        const candidate = item.accepted === false ? "Candidate " : "";
+        return `<span class="verification-chip ${escapeHtml(item.status)}">${candidate}${escapeHtml(item.number)} · ${label}</span>`;
+      }).join("")}</div>`;
     }
 
     function renderList() {
@@ -226,6 +253,7 @@
         <label for="field-${name}">${label}</label>
         <input id="field-${name}" name="${name}" value="${escapeHtml(renderedValue)}" class="${low ? "low" : ""}" placeholder="${placeholder}">
         ${low ? `<div class="field-hint">Low extraction confidence (${Math.round(confidence * 100)}%)</div>` : ""}
+        ${name === "central_numbers" ? centralVerificationMarkup(record) : ""}
         <div class="field-evidence">Visible evidence: ${escapeHtml(evidence || "None returned")}</div>
       </div>`;
     }

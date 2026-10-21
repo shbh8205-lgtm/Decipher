@@ -128,6 +128,7 @@ class RecordPersistenceTests(unittest.TestCase):
             finally:
                 connection.close()
             self.assertIn("preview_thumbnail", columns)
+            self.assertIn("barcode_verification", columns)
         finally:
             main.DATABASE_PATH = original_path
 
@@ -139,6 +140,67 @@ class RecordPersistenceTests(unittest.TestCase):
         self.assertTrue(approved["approved"])
         self.assertFalse(corrected["approved"])
         self.assertEqual(corrected["last_name"], "Levi")
+
+    def test_barcode_verification_is_persisted_and_central_edits_become_manual(self) -> None:
+        self.extracted["decoded_central_barcodes"] = [{
+            "text": "937309",
+            "format": "Code 128",
+            "rotation": 0,
+            "bbox": {"x": 0.1, "y": 0.2, "width": 0.3, "height": 0.1},
+        }]
+        self.extracted["central_numbers"] = ["937309"]
+
+        record = main.save_records("form.pdf", [(1, self.page_image)], self.extracted)[0]
+
+        self.assertEqual(record["barcode_verification"][0]["status"], "barcode_ocr_match")
+        self.assertEqual(main.list_records()[0]["barcode_verification"], record["barcode_verification"])
+        corrected = main.update_record(
+            record["id"],
+            main.RecordCorrection(central_numbers=["937310"]),
+        )
+        self.assertEqual(corrected["barcode_verification"][0]["status"], "manual")
+        self.assertEqual(corrected["central_numbers"], ["937310"])
+
+    def test_verified_central_number_clears_only_central_low_confidence_flags(self) -> None:
+        self.extracted["central_numbers"] = ["937309"]
+        self.extracted["field_confidence"]["central_numbers"] = 0
+        self.extracted["notes"] = ["Double extraction disagreement: central numbers"]
+        self.extracted["decoded_central_barcodes"] = [{"text": "937309"}]
+
+        record = main.save_records("form.pdf", [(1, self.page_image)], self.extracted)[0]
+
+        self.assertNotIn("Low confidence: central numbers", record["review_reasons"])
+        self.assertNotIn(
+            "Double extraction disagreement: central numbers",
+            record["review_reasons"],
+        )
+
+    def test_partial_central_verification_keeps_central_review_flags(self) -> None:
+        self.extracted["central_numbers"] = ["937309", "937310"]
+        self.extracted["field_confidence"]["central_numbers"] = 0
+        self.extracted["notes"] = ["Double extraction disagreement: central numbers"]
+        self.extracted["decoded_central_barcodes"] = [{"text": "937309"}]
+
+        record = main.save_records("form.pdf", [(1, self.page_image)], self.extracted)[0]
+
+        self.assertIn("Low confidence: central numbers", record["review_reasons"])
+        self.assertIn(
+            "Double extraction disagreement: central numbers",
+            record["review_reasons"],
+        )
+
+    def test_conflict_adds_a_review_reason_and_uses_barcode_value(self) -> None:
+        self.extracted["central_numbers"] = ["937308"]
+        self.extracted["decoded_central_barcodes"] = [{"text": "937309"}]
+
+        record = main.save_records("form.pdf", [(1, self.page_image)], self.extracted)[0]
+
+        self.assertEqual(record["central_numbers"], ["937309"])
+        self.assertEqual(record["barcode_verification"][0]["alternatives"], ["937308"])
+        self.assertIn(
+            "Central number conflict: barcode overrides the model reading",
+            record["review_reasons"],
+        )
 
 
 if __name__ == "__main__":
