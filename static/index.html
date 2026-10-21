@@ -190,7 +190,9 @@
         const name = [record.first_name, record.last_name].filter(Boolean).join(" ") || "Name not identified";
         const authorization = record.authorization_number || "No authorization number";
         const status = record.approved ? '<span class="badge approved">Approved</span>' : '<span class="badge">Review</span>';
-        const thumbnail = thumbnails.get(record.id);
+        const thumbnail = thumbnails.get(record.id) || (
+          record.preview_thumbnail ? `data:image/jpeg;base64,${record.preview_thumbnail}` : null
+        );
         const preview = thumbnail
           ? `<img class="record-thumb" src="${thumbnail}" alt="Preview of ${escapeHtml(record.source_filename)}">`
           : '<span class="record-thumb record-thumb-placeholder" aria-hidden="true">▤</span>';
@@ -227,7 +229,9 @@
         ? previewFiles.map((item) => item.isPdf
           ? `<div class="preview-page"><small>${escapeHtml(item.name)}</small><iframe title="Original authorization form" src="${item.url}"></iframe></div>`
           : `<div class="preview-page"><small>${escapeHtml(item.name)}</small><img alt="Original authorization form page" src="${item.url}"></div>`).join("")
-        : "Original upload is not available after this browser session.";
+        : record.preview_thumbnail
+          ? `<div class="preview-page"><small>Saved first-page thumbnail · original file not retained</small><img alt="Saved first-page preview of ${escapeHtml(record.source_filename)}" src="data:image/jpeg;base64,${record.preview_thumbnail}"></div>`
+          : "No saved preview is available for this record.";
       $("#detailContent").innerHTML = `
         <div class="source-line"><span>${escapeHtml(record.source_filename)}</span><span>Page${record.source_pages.length === 1 ? "" : "s"} ${escapeHtml(record.source_pages.join(", "))}</span></div>
         <div class="review-alert ${reasons.length ? "" : "ok"}">${reasons.length ? `<strong>Review required</strong><br>${reasons.map(escapeHtml).join(" · ")}` : "No automatic review flags. Verify the values before approval."}</div>
@@ -368,7 +372,13 @@
       try {
         const response = await fetch("/api/records");
         if (!response.ok) throw new Error("Could not load saved records.");
-        records.push(...await response.json());
+        const savedRecords = await response.json();
+        savedRecords.forEach((record) => {
+          records.push(record);
+          if (record.preview_thumbnail) {
+            thumbnails.set(record.id, `data:image/jpeg;base64,${record.preview_thumbnail}`);
+          }
+        });
         renderList();
       } catch (error) {
         $("#uploadStatus").textContent = error.message;

@@ -63,8 +63,9 @@ record; the document's central-number list and shared patient fields are repeate
   are credentials: keep them secret, restrict their permissions/quotas in Google AI Studio, and
   rotate exposed keys.
 - Uploaded originals are processed in memory by the application and are not stored on the server.
-  A small first-page thumbnail is returned to the browser for the current page session and is not
-  saved in the database. The browser's original-file preview is also session-only.
+  A small first-page thumbnail is saved with each record in the local database so the list and
+  record preview still work after reload. Original full-resolution documents are not retained;
+  the browser's full-document preview is available only during the upload session.
 - Structured records are stored in `data/decipher.sqlite3` (or `DATA_DIR`). This database contains
   medical and identity information. Protect the host and database with appropriate access controls
   and encrypted storage; this local prototype has no user authentication and is not suitable for

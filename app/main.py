@@ -199,6 +199,7 @@ def initialize_db() -> None:
                 authorization_number TEXT,
                 field_confidence TEXT NOT NULL,
                 evidence TEXT NOT NULL,
+                preview_thumbnail TEXT,
                 review_reasons TEXT NOT NULL,
                 approved INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL,
@@ -206,6 +207,14 @@ def initialize_db() -> None:
             )
             """
         )
+        columns = {
+            column["name"]
+            for column in connection.execute("PRAGMA table_info(authorization_records)")
+        }
+        if "preview_thumbnail" not in columns:
+            connection.execute(
+                "ALTER TABLE authorization_records ADD COLUMN preview_thumbnail TEXT"
+            )
         connection.commit()
 
 
@@ -223,6 +232,7 @@ def record_to_dict(row: sqlite3.Row) -> dict[str, Any]:
         "authorization_number": row["authorization_number"],
         "field_confidence": json.loads(row["field_confidence"]),
         "evidence": json.loads(row["evidence"]),
+        "preview_thumbnail": row["preview_thumbnail"],
         "review_reasons": json.loads(row["review_reasons"]),
         "approved": bool(row["approved"]),
         "created_at": row["created_at"],
@@ -518,6 +528,7 @@ def save_records(filename: str, pages: list[tuple[int, bytes]], extracted: dict[
     extracted["received_date"] = received_date
     extracted["referring_entity"] = entity
     central_numbers = list(dict.fromkeys(str(number).strip() for number in extracted["central_numbers"] if str(number).strip()))
+    preview_thumbnail = make_preview_thumbnail(pages[0][1]) if pages else None
     authorizations = extracted["authorizations"] or [{"number": None, "confidence": 0, "evidence": None}]
     source_pages = [page_number for page_number, _ in pages]
     now = datetime.now(timezone.utc).isoformat()
@@ -552,6 +563,7 @@ def save_records(filename: str, pages: list[tuple[int, bytes]], extracted: dict[
                 "authorization_number": authorization.get("number"),
                 "field_confidence": json.dumps(record_confidence),
                 "evidence": json.dumps(record_evidence, ensure_ascii=False),
+                "preview_thumbnail": preview_thumbnail,
                 "review_reasons": json.dumps(list(dict.fromkeys(reasons)), ensure_ascii=False),
                 "created_at": now,
                 "updated_at": now,
@@ -561,17 +573,18 @@ def save_records(filename: str, pages: list[tuple[int, bytes]], extracted: dict[
                 INSERT INTO authorization_records (
                     id, source_filename, source_pages, first_name, last_name, id_number,
                     central_numbers, received_date, referring_entity, authorization_number,
-                    field_confidence, evidence, review_reasons, created_at, updated_at
+                    field_confidence, evidence, preview_thumbnail, review_reasons, created_at, updated_at
                 ) VALUES (
                     :id, :source_filename, :source_pages, :first_name, :last_name, :id_number,
                     :central_numbers, :received_date, :referring_entity, :authorization_number,
-                    :field_confidence, :evidence, :review_reasons, :created_at, :updated_at
+                    :field_confidence, :evidence, :preview_thumbnail, :review_reasons, :created_at, :updated_at
                 )
                 """,
                 values,
             )
             records.append({**values, "source_pages": source_pages, "central_numbers": central_numbers,
                             "field_confidence": record_confidence, "evidence": record_evidence,
+                            "preview_thumbnail": preview_thumbnail,
                             "review_reasons": list(dict.fromkeys(reasons)), "approved": False})
         connection.commit()
     return records
@@ -657,7 +670,7 @@ async def upload_documents(
                     "upload_index": 0,
                     "filename": group_name,
                     "records": records,
-                    "preview_thumbnail": make_preview_thumbnail(pages[0][1]),
+                    "preview_thumbnail": records[0]["preview_thumbnail"],
                 }],
                 "errors": [],
             }
@@ -687,7 +700,7 @@ async def upload_documents(
                 "upload_index": index,
                 "filename": filename,
                 "records": records,
-                "preview_thumbnail": make_preview_thumbnail(pages[0][1]),
+                "preview_thumbnail": records[0]["preview_thumbnail"],
             })
         except HTTPException as error:
             errors.append({"filename": filename, "error": error.detail})
