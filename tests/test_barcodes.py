@@ -76,6 +76,43 @@ class CentralNumberVerificationTests(unittest.TestCase):
         self.assertEqual(result[0]["status"], "conflict")
         self.assertEqual(result[0]["alternatives"], ["937308"])
 
+    def test_two_digit_edits_are_still_treated_as_plausible_ocr_conflict(self) -> None:
+        values, result = verify_central_numbers(["123456"], [self.barcode("123486")])
+
+        self.assertEqual(values, ["123486"])
+        self.assertEqual(result[0]["status"], "conflict")
+        self.assertEqual(result[0]["alternatives"], ["123456"])
+
+    def test_unrelated_barcode_keeps_model_value_and_requires_review(self) -> None:
+        values, result = verify_central_numbers(["123456"], [self.barcode("987654")])
+
+        self.assertEqual(values, ["123456"])
+        self.assertEqual(result[0]["number"], "123456")
+        self.assertEqual(result[0]["status"], "ocr_only")
+        self.assertEqual(result[0]["barcode_candidates"], ["987654"])
+        self.assertEqual(
+            result[0]["review_reason"],
+            "Barcode differs from central number; confirm which is the central sticker",
+        )
+
+    def test_hospital_internal_barcode_does_not_replace_central_number(self) -> None:
+        values, result = verify_central_numbers(["946621"], [self.barcode("436702")])
+
+        self.assertEqual(values, ["946621"])
+        self.assertEqual(result[0]["number"], "946621")
+        self.assertEqual(result[0]["status"], "ocr_only")
+        self.assertEqual(result[0]["barcode_candidates"], ["436702"])
+        self.assertEqual(
+            result[0]["review_reason"],
+            "Barcode differs from central number; confirm which is the central sticker",
+        )
+
+    def test_different_length_values_do_not_override_model_number(self) -> None:
+        values, result = verify_central_numbers(["12345"], [self.barcode("123456")])
+
+        self.assertEqual(values, ["12345"])
+        self.assertEqual(result[0]["status"], "ocr_only")
+
     def test_multiple_central_values_are_preserved_and_matched_individually(self) -> None:
         values, result = verify_central_numbers(
             ["937309", "937310", "937311"],

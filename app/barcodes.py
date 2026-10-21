@@ -182,6 +182,19 @@ def verify_central_numbers(
     def comparable(value: str) -> str:
         return re.sub(r"[\s-]+", "", value).casefold()
 
+    def edit_distance(left: str, right: str) -> int:
+        previous = list(range(len(right) + 1))
+        for left_index, left_char in enumerate(left, start=1):
+            current = [left_index]
+            for right_index, right_char in enumerate(right, start=1):
+                current.append(min(
+                    current[-1] + 1,
+                    previous[right_index] + 1,
+                    previous[right_index - 1] + (left_char != right_char),
+                ))
+            previous = current
+        return previous[-1]
+
     model_values = unique([str(value) for value in model_numbers])
     barcode_values = unique([
         str(item.get("text", "")).strip()
@@ -197,8 +210,9 @@ def verify_central_numbers(
         alternatives: list[str] | None = None,
         candidates: list[str] | None = None,
         accepted: bool = True,
+        review_reason: str | None = None,
     ) -> dict[str, Any]:
-        return {
+        result = {
             "number": number,
             "status": status,
             "barcode_value": barcode_value,
@@ -206,6 +220,9 @@ def verify_central_numbers(
             "barcode_candidates": candidates or [],
             "accepted": accepted,
         }
+        if review_reason:
+            result["review_reason"] = review_reason
+        return result
 
     if not barcode_values:
         return model_values, [
@@ -235,8 +252,18 @@ def verify_central_numbers(
         model = model_values[0]
         if comparable(barcode) == comparable(model):
             return model_values, [entry(model, "barcode_ocr_match", barcode)]
-        return [barcode], [entry(
-            barcode, "conflict", barcode, alternatives=[model], candidates=barcode_values
+        if (
+            len(comparable(barcode)) == len(comparable(model))
+            and edit_distance(comparable(barcode), comparable(model)) <= 2
+        ):
+            return [barcode], [entry(
+                barcode, "conflict", barcode, alternatives=[model], candidates=barcode_values
+            )]
+        return model_values, [entry(
+            model,
+            "ocr_only",
+            candidates=barcode_values,
+            review_reason="Barcode differs from central number; confirm which is the central sticker",
         )]
 
     for model in model_values:
