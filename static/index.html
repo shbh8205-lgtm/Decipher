@@ -67,6 +67,8 @@
     .record-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; padding: 14px 18px; text-align: left; border: 0; border-bottom: 1px solid #edf1ef; background: white; color: var(--ink); }
     .record-row:hover, .record-row.selected { background: #f1f8f6; }
     .record-row.selected { box-shadow: inset 3px 0 var(--teal); }
+    .record-thumb { width: 48px; height: 60px; flex: none; object-fit: cover; object-position: top center; background: #edf3f1; border: 1px solid var(--line); border-radius: 6px; }
+    .record-thumb-placeholder { display: grid; place-items: center; color: var(--muted); font-size: 18px; }
     .row-main { min-width: 0; }
     .row-main strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
     .row-main small { display: block; margin-top: 5px; color: var(--muted); font-size: 12px; }
@@ -146,6 +148,7 @@
   <script>
     const records = [];
     const previews = new Map();
+    const thumbnails = new Map();
     let selectedId = null;
     let modelReady = false;
     const $ = (selector) => document.querySelector(selector);
@@ -187,8 +190,12 @@
         const name = [record.first_name, record.last_name].filter(Boolean).join(" ") || "Name not identified";
         const authorization = record.authorization_number || "No authorization number";
         const status = record.approved ? '<span class="badge approved">Approved</span>' : '<span class="badge">Review</span>';
+        const thumbnail = thumbnails.get(record.id);
+        const preview = thumbnail
+          ? `<img class="record-thumb" src="${thumbnail}" alt="Preview of ${escapeHtml(record.source_filename)}">`
+          : '<span class="record-thumb record-thumb-placeholder" aria-hidden="true">▤</span>';
         return `<button class="record-row ${selectedId === record.id ? "selected" : ""}" data-id="${escapeHtml(record.id)}">
-          <span class="row-main"><strong>${escapeHtml(name)}</strong><small>${escapeHtml(authorization)} · ${escapeHtml(record.source_filename)}</small></span>${status}</button>`;
+          ${preview}<span class="row-main"><strong>${escapeHtml(name)}</strong><small>${escapeHtml(authorization)} · ${escapeHtml(record.source_filename)}</small></span>${status}</button>`;
       }).join("");
       document.querySelectorAll(".record-row").forEach((button) => {
         button.addEventListener("click", () => selectRecord(button.dataset.id));
@@ -326,6 +333,7 @@
             for (const item of result.errors) errors.push(`${item.filename}: ${item.error}`);
             successfulForms += result.documents.length;
             for (const document of result.documents) {
+              const thumbnail = `data:image/jpeg;base64,${document.preview_thumbnail}`;
               const previewFiles = currentFiles.map((currentFile) => ({
                 name: currentFile.name,
                 isPdf: currentFile.name.toLowerCase().endsWith(".pdf"),
@@ -334,6 +342,7 @@
               recordsAdded += document.records.length;
               document.records.forEach((record) => {
                 previews.set(record.id, previewFiles);
+                thumbnails.set(record.id, thumbnail);
                 records.unshift(record);
               });
             }

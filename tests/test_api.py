@@ -75,6 +75,8 @@ class ExtractionApiTests(unittest.TestCase):
                 self.assertEqual(record["id_number"], "123456782")
                 self.assertEqual(record["received_date"], "12/04/2025")
                 self.assertEqual(record["authorization_number"], "A-100")
+                thumbnail = response.json()["documents"][0]["preview_thumbnail"]
+                self.assertTrue(thumbnail.startswith("/9j/"))
                 self.assertEqual(client.get("/api/records").json()[0]["id"], record["id"])
                 corrected = client.patch(
                     f"/api/records/{record['id']}",
@@ -97,6 +99,7 @@ class ExtractionApiTests(unittest.TestCase):
                 )
                 self.assertEqual(grouped.status_code, 200)
                 grouped_document = grouped.json()["documents"][0]
+                self.assertTrue(grouped_document["preview_thumbnail"].startswith("/9j/"))
                 self.assertEqual(grouped_document["records"][0]["source_pages"], [1, 2])
                 self.assertEqual(
                     grouped_document["records"][0]["source_filename"],

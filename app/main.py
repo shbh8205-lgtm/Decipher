@@ -125,10 +125,10 @@ EXTRACTION_SCHEMA: dict[str, Any] = {
 
 EXTRACTION_PROMPT = """Read all pages of this medical payment authorization form as one document.
 Return only the requested structured data. Do not infer missing or illegible values: use null,
-an empty list, or a note as appropriate. Keep Hebrew names and visible number strings as written.
+an empty list, or a note as appropriate. Keep Hebrew only names and visible number strings as written.
 
 Field guidance:
-- First and last name and ID number belong to the patient. Preserve the ID digits; never substitute
+- First and last name in hebrew only (when its hand writing notice to read from right to left) and ID number belong to the patient. Preserve the ID digits; never substitute
   another number from the form.
 - A "Central" / "Merkazi" (מרכזי) number is usually on a distinct sticker labeled מרכזי. Do not
   confuse it with an ID, barcode, phone, or authorization number. Return every clearly identified
@@ -268,6 +268,15 @@ def image_to_jpeg(image: Image.Image) -> bytes:
     output = BytesIO()
     normalized.save(output, format="JPEG", quality=88, optimize=True)
     return output.getvalue()
+
+
+def make_preview_thumbnail(image_bytes: bytes) -> str:
+    with Image.open(BytesIO(image_bytes)) as image:
+        thumbnail = ImageOps.exif_transpose(image).convert("RGB")
+        thumbnail.thumbnail((240, 300))
+        output = BytesIO()
+        thumbnail.save(output, format="JPEG", quality=72, optimize=True)
+    return base64.b64encode(output.getvalue()).decode("ascii")
 
 
 def normalize_document(filename: str, content: bytes) -> list[tuple[int, bytes]]:
@@ -628,7 +637,12 @@ async def upload_documents(
             extracted = await extract_document(pages)
             records = save_records(group_name, pages, extracted)
             return {
-                "documents": [{"upload_index": 0, "filename": group_name, "records": records}],
+                "documents": [{
+                    "upload_index": 0,
+                    "filename": group_name,
+                    "records": records,
+                    "preview_thumbnail": make_preview_thumbnail(pages[0][1]),
+                }],
                 "errors": [],
             }
         except HTTPException as error:
@@ -653,7 +667,12 @@ async def upload_documents(
                 raise ValueError("No readable pages found.")
             extracted = await extract_document(pages)
             records = save_records(filename, pages, extracted)
-            documents.append({"upload_index": index, "filename": filename, "records": records})
+            documents.append({
+                "upload_index": index,
+                "filename": filename,
+                "records": records,
+                "preview_thumbnail": make_preview_thumbnail(pages[0][1]),
+            })
         except HTTPException as error:
             errors.append({"filename": filename, "error": error.detail})
         except (ValueError, KeyError, TypeError) as error:
