@@ -304,7 +304,10 @@ class ExtractionApiTests(unittest.TestCase):
             async def handler(request: httpx.Request) -> httpx.Response:
                 requests.append(request)
                 if request.url.host == "api.anthropic.com":
-                    return httpx.Response(status_code)
+                    return httpx.Response(
+                        status_code,
+                        json={"error": {"message": "invalid request"}},
+                    )
                 return httpx.Response(200, json=extracted)
 
             original_client = httpx.AsyncClient
@@ -322,11 +325,16 @@ class ExtractionApiTests(unittest.TestCase):
                             transport=mock_transport, **kwargs
                         ),
                     ):
-                        result = asyncio.run(
-                            main.extract_once([(1, b"jpeg-bytes")], "test prompt")
-                        )
+                        with self.assertLogs(main.__name__, level="WARNING") as logs:
+                            result = asyncio.run(
+                                main.extract_once([(1, b"jpeg-bytes")], "test prompt")
+                            )
 
             self.assertEqual(result, {"first_name": "Maya"})
+            self.assertTrue(
+                any("Anthropic API returned HTTP" in entry for entry in logs.output)
+            )
+            self.assertTrue(any("invalid request" in entry for entry in logs.output))
             self.assertEqual(len(requests), 2)
             self.assertEqual(str(requests[0].url), main.ANTHROPIC_API_URL)
             self.assertEqual(str(requests[1].url), main.GEMINI_API_URL)

@@ -2,6 +2,7 @@ import base64
 import asyncio
 import csv
 import json
+import logging
 import os
 import re
 import secrets
@@ -31,6 +32,7 @@ from app.validation import normalize_israeli_id, normalize_received_date
 
 
 ROOT = Path(__file__).resolve().parent.parent
+LOGGER = logging.getLogger(__name__)
 STATIC_DIR = ROOT / "static"
 DATA_DIR = Path(os.getenv("DATA_DIR", str(ROOT / "data"))).resolve()
 DATABASE_PATH = DATA_DIR / "decipher.sqlite3"
@@ -714,6 +716,27 @@ async def extract_once(pages: list[tuple[int, bytes]], prompt: str) -> dict[str,
                         )
                         response.raise_for_status()
                     except httpx.HTTPStatusError as error:
+                        if (
+                            provider_name == "Anthropic"
+                            and error.response.status_code in {400, 418}
+                        ):
+                            try:
+                                error_data = error.response.json().get("error", {})
+                            except (ValueError, AttributeError):
+                                error_data = {}
+                            message = (
+                                error_data.get("message", "")
+                                if isinstance(error_data, dict)
+                                else ""
+                            )
+                            message = " ".join(message.split())[:500] if isinstance(
+                                message, str
+                            ) else ""
+                            LOGGER.warning(
+                                "Anthropic API returned HTTP %s%s",
+                                error.response.status_code,
+                                f": {message}" if message else "",
+                            )
                         if (
                             error.response.status_code in {500, 503, 504, 529}
                             and attempt + 1 < GEMINI_MAX_ATTEMPTS
