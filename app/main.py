@@ -986,6 +986,18 @@ def export_records_csv() -> Response:
     )
 
 
+@app.delete("/api/records/{record_id}", status_code=204)
+def delete_record(record_id: str) -> Response:
+    with closing(connect_db()) as connection:
+        cursor = connection.execute(
+            "DELETE FROM authorization_records WHERE id = ?", (record_id,)
+        )
+        connection.commit()
+    if cursor.rowcount == 0:
+        raise HTTPException(status_code=404, detail="Record not found.")
+    return Response(status_code=204)
+
+
 @app.post("/api/extract")
 async def upload_documents(
     files: Annotated[list[UploadFile], File()],

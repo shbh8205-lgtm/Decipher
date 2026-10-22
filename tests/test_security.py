@@ -51,6 +51,7 @@ class AuthenticationAndHardeningTests(unittest.TestCase):
             self.client.patch("/api/records/example", json={}).status_code,
             401,
         )
+        self.assertEqual(self.client.delete("/api/records/example").status_code, 401)
         self.assertEqual(self.client.get("/api/unregistered-route").status_code, 401)
 
     def test_health_check_does_not_access_database_or_gemini(self) -> None:

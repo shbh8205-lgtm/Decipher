@@ -134,6 +134,11 @@ class ExtractionApiTests(unittest.TestCase):
                     central_correction.json()["barcode_verification"][0]["status"],
                     "manual",
                 )
+                deleted = client.delete(f"/api/records/{record['id']}")
+                self.assertEqual(deleted.status_code, 204)
+                self.assertEqual(client.get("/api/records").json(), [])
+                missing = client.delete(f"/api/records/{record['id']}")
+                self.assertEqual(missing.status_code, 404)
                 second_page = Image.new("RGB", (32, 32), "white")
                 second_page_bytes = BytesIO()
                 second_page.save(second_page_bytes, format="PNG")
