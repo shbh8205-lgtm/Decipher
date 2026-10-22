@@ -2,18 +2,21 @@
 
 Decipher turns authorization-form scans and photos into editable lab records. It analyzes each PDF
 page separately or groups explicitly selected image pages into one form, extracts visible values
-with Gemini, validates common fields, and flags records that need human review. Each distinct
+with Anthropic first and configured fallback providers, validates common fields, and flags records
+that need human review. Each distinct
 authorization becomes a record; shared patient fields are repeated on each record.
 
 ## Configure and run locally
 
 1. Install Python 3.12.8 (the version in `.python-version`).
-2. Create a Gemini API key in Google AI Studio and confirm that your organization's privacy,
-   consent, and regulatory requirements permit sending these medical documents to Google's API.
-   NetFree filtering must allow the app's server to reach `generativelanguage.googleapis.com`.
-3. Set the key and, optionally, the model in the PowerShell session where the app will run:
+2. Set your Anthropic API key and, optionally, a Gemini fallback key in the PowerShell session
+   where the app will run. Confirm that your organization's privacy, consent, and regulatory
+   requirements permit sending these medical documents to the configured providers:
 
    ```powershell
+   $env:ANTHROPIC_API_KEY = "YOUR_ANTHROPIC_API_KEY"
+   $env:ANTHROPIC_MODEL = "claude-sonnet-5-5"
+   # Optional fallback:
    $env:GEMINI_API_KEY = "YOUR_GEMINI_API_KEY"
    $env:GEMINI_MODEL = "gemini-3.8-flash"
    $env:SESSION_SECRET = (python -c "import secrets; print(secrets.token_urlsafe(32))")
@@ -23,7 +26,8 @@ authorization becomes a record; shared patient fields are repeated on each recor
    The application reads environment variables; it does not load `.env` automatically. The API
    key must remain in the server environment and must never be added to browser code, committed,
    or shared. Replace the example account hash with one generated as described in the deployment
-   section. `.env.example` lists supported settings.
+   section. `.env.example` lists supported settings. The app tries Anthropic first, then Gemini
+   and OpenRouter if configured and needed.
 4. Create a virtual environment and install dependencies:
 
    ```powershell
@@ -91,19 +95,23 @@ deactivate
   because a barcode was absent. The CSV export includes a **Central Verification** column.
 - Each form is read twice independently. Disagreements are surfaced as review notes; number
   candidates found in either pass are retained rather than silently discarded.
-- Uploads are disabled until an operator confirms authorization for external Gemini processing.
+- Uploads are disabled until an operator confirms authorization for external AI processing.
   The server also enforces this confirmation on the extraction endpoint.
-- The Gemini integration uses the Interactions API, sends `store: false` to avoid retaining
-  interaction history there, and requests JSON matching the extraction schema. Set
-  `GEMINI_MODEL` to an available model ID, such as `gemini-3.8-flash`.
+- Anthropic is tried first using its Messages API and structured JSON output. Set
+  `ANTHROPIC_MODEL` to a vision-capable model available to your account; the default is
+  `claude-sonnet-5-5`.
+- If Anthropic is unavailable, the app tries Gemini. Gemini uses the Interactions API, sends
+  `store: false` to avoid retaining interaction history there, and requests JSON matching the
+  extraction schema. Set `GEMINI_MODEL` to an available model ID, such as `gemini-3.8-flash`.
 - Temporary Gemini HTTP 503 responses are retried up to three times with a short backoff.
   Persistent 503 errors are reported as temporary service unavailability; wait and retry, then
   check Google's service status and network filtering if the issue continues.
 - If extraction reports HTTP 404, confirm `GEMINI_MODEL` is an available model ID and that NetFree
   allows the server to access `generativelanguage.googleapis.com` without replacing/blocking the
   Gemini API response. The application shows Gemini's returned error message when available.
-- Document images are transmitted to Google Gemini using the server-side API key, and may also be
-  sent to OpenRouter if it is configured and Gemini is unavailable. Do not upload real patient
+- Document images are transmitted to the configured providers in order: Anthropic, Gemini, the
+  optional backup Gemini key, then OpenRouter. Fallback providers receive document images only
+  when a preceding provider is unavailable or rejects access. Do not upload real patient
   forms unless authorized, and verify applicable provider terms, data handling/retention settings,
   and any required organizational agreements before use. API keys are credentials: keep them
   secret, restrict their permissions/quotas in each provider dashboard, and rotate exposed keys.
@@ -178,7 +186,9 @@ Set these environment variables in Render:
 
 | Variable | Required | Purpose |
 |---|---|---|
-| `GEMINI_API_KEY` | Yes | Server-side Gemini credential |
+| `ANTHROPIC_API_KEY` | No | Anthropic credential; tried first when configured |
+| `ANTHROPIC_MODEL` | No | Anthropic vision model; defaults to `claude-sonnet-5-5` |
+| `GEMINI_API_KEY` | No | Primary Gemini fallback credential |
 | `GEMINI_API_KEY_BACKUP` | No | Optional second Gemini key, tried if the primary Gemini key fails |
 | `OPENROUTER_API_KEY` | No | Optional final fallback credential for OpenRouter |
 | `OPENROUTER_MODEL` | No | Vision-capable OpenRouter model that supports JSON Schema output; defaults to `openai/gpt-4o-mini` |
@@ -189,16 +199,16 @@ Set these environment variables in Render:
 | `DEMO_BANNER` | No | Set `true` to show “Demo environment - sample data only” |
 | `DEMO_SEED` | No | Set `1` to populate an empty database with synthetic demo rows |
 
-Set `GEMINI_API_KEY_BACKUP` and `OPENROUTER_API_KEY` in Render's environment settings to
-configure the fallback chain. The app tries the primary Gemini key, then the backup Gemini key,
-then OpenRouter after authentication errors (HTTP 401/403), rate limits (HTTP 429), unavailable
-service after retries (HTTP 503), or connection failures. Model/configuration errors such as HTTP
-404 do not trigger fallback. Choose a vision-capable OpenRouter model that supports structured
-JSON Schema output. Keep all keys private.
+Set the provider keys in Render's environment settings to configure the fallback chain. The app
+tries Anthropic first, then the primary Gemini key, the backup Gemini key, and finally OpenRouter.
+It falls back after authentication or billing errors (HTTP 401/402/403), rate limits (HTTP 429),
+temporary server/overload errors after retries (HTTP 500/503/504/529), or connection failures.
+Model/configuration errors such as HTTP 400 or 404 do not trigger fallback. Choose models with
+image input and structured JSON output support. Keep all keys private.
 
-If fallback is enabled, uploaded document images may be sent to OpenRouter as well as Google
-Gemini. Confirm that your organization's privacy, consent, and regulatory requirements permit
-both providers before enabling it.
+If fallback is enabled, uploaded document images may be sent to any configured provider in the
+chain, including Anthropic, Google Gemini, and OpenRouter. Confirm that your organization's
+privacy, consent, and regulatory requirements permit using each provider before enabling it.
 
 Generate an account password hash locally (never place a plaintext password in the deployment
 configuration):

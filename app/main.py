@@ -37,10 +37,13 @@ DATABASE_PATH = DATA_DIR / "decipher.sqlite3"
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 GEMINI_API_KEY_BACKUP = os.getenv("GEMINI_API_KEY_BACKUP", "")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
 OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "openai/gpt-4o-mini")
+ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-5-5")
 GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/interactions"
 OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
+ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages"
 SESSION_SECRET = os.getenv("SESSION_SECRET") or secrets.token_urlsafe(32)
 DEMO_BANNER = os.getenv("DEMO_BANNER", "").strip().casefold() in {"1", "true", "yes", "on"}
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024
@@ -592,6 +595,8 @@ def normalize_document(filename: str, content: bytes) -> list[tuple[int, bytes]]
 
 async def extract_once(pages: list[tuple[int, bytes]], prompt: str) -> dict[str, Any]:
     providers = []
+    if ANTHROPIC_API_KEY.strip():
+        providers.append(("Anthropic", ANTHROPIC_API_URL, ANTHROPIC_API_KEY.strip(), ANTHROPIC_MODEL))
     if GEMINI_API_KEY.strip():
         providers.append(("Gemini", GEMINI_API_URL, GEMINI_API_KEY.strip(), GEMINI_MODEL))
     if GEMINI_API_KEY_BACKUP.strip() and GEMINI_API_KEY_BACKUP.strip() != GEMINI_API_KEY.strip():
@@ -601,7 +606,7 @@ async def extract_once(pages: list[tuple[int, bytes]], prompt: str) -> dict[str,
     if not providers:
         raise HTTPException(
             status_code=503,
-            detail="No model API key is configured. Set GEMINI_API_KEY, GEMINI_API_KEY_BACKUP, or OPENROUTER_API_KEY in the server environment.",
+            detail="No model API key is configured. Set ANTHROPIC_API_KEY, GEMINI_API_KEY, GEMINI_API_KEY_BACKUP, or OPENROUTER_API_KEY in the server environment.",
         )
     provider_name = ""
     model_name = ""
@@ -614,6 +619,11 @@ async def extract_once(pages: list[tuple[int, bytes]], prompt: str) -> dict[str,
                     if provider_name == "Gemini"
                     else {"Authorization": f"Bearer {api_key}"}
                 )
+                if provider_name == "Anthropic":
+                    request_headers = {
+                        "x-api-key": api_key,
+                        "anthropic-version": "2023-06-01",
+                    }
                 if provider_name == "Gemini":
                     payload = {
                         "model": model_name,
@@ -634,6 +644,34 @@ async def extract_once(pages: list[tuple[int, bytes]], prompt: str) -> dict[str,
                             "schema": gemini_response_schema(EXTRACTION_SCHEMA),
                         },
                         "store": False,
+                    }
+                elif provider_name == "Anthropic":
+                    payload = {
+                        "model": model_name,
+                        "max_tokens": 4096,
+                        "messages": [{
+                            "role": "user",
+                            "content": [
+                                {"type": "text", "text": prompt},
+                                *[
+                                    {
+                                        "type": "image",
+                                        "source": {
+                                            "type": "base64",
+                                            "media_type": "image/jpeg",
+                                            "data": base64.b64encode(content).decode("ascii"),
+                                        },
+                                    }
+                                    for _, content in pages
+                                ],
+                            ],
+                        }],
+                        "output_config": {
+                            "format": {
+                                "type": "json_schema",
+                                "schema": EXTRACTION_SCHEMA,
+                            },
+                        },
                     }
                 else:
                     payload = {
@@ -676,11 +714,21 @@ async def extract_once(pages: list[tuple[int, bytes]], prompt: str) -> dict[str,
                         )
                         response.raise_for_status()
                     except httpx.HTTPStatusError as error:
-                        if error.response.status_code == 503 and attempt + 1 < GEMINI_MAX_ATTEMPTS:
+                        if (
+                            error.response.status_code in {500, 503, 504, 529}
+                            and attempt + 1 < GEMINI_MAX_ATTEMPTS
+                        ):
                             await asyncio.sleep(attempt + 1)
                             continue
                         if (
-                            error.response.status_code in {401, 403, 429, 503}
+                            (
+                                error.response.status_code
+                                in {401, 402, 403, 429, 500, 503, 504, 529}
+                                or (
+                                    provider_name == "Anthropic"
+                                    and error.response.status_code in {400, 418}
+                                )
+                            )
                             and provider_index + 1 < len(providers)
                         ):
                             use_backup = True
@@ -696,15 +744,16 @@ async def extract_once(pages: list[tuple[int, bytes]], prompt: str) -> dict[str,
                 if not use_backup:
                     break
     except httpx.HTTPStatusError as error:
-        if provider_name == "OpenRouter" and error.response.status_code in {401, 403}:
-            detail = "OpenRouter rejected the API key or access to the selected model."
-        elif provider_name == "Gemini" and error.response.status_code in {401, 403}:
-            detail = "Gemini rejected the API key or access to the selected model."
+        if error.response.status_code in {401, 403}:
+            detail = f"{provider_name} rejected the API key or access to the selected model."
+        elif error.response.status_code == 402:
+            detail = f"{provider_name} reported a billing or payment problem."
         elif error.response.status_code == 429:
             detail = f"{provider_name} rate limit or quota reached. Try again later or check your account quota."
-        elif error.response.status_code == 503:
+        elif error.response.status_code in {500, 503, 504, 529}:
             detail = (
-                f"{provider_name} remained unavailable (HTTP 503) after {GEMINI_MAX_ATTEMPTS} attempts. "
+                f"{provider_name} remained unavailable (HTTP {error.response.status_code}) "
+                f"after {GEMINI_MAX_ATTEMPTS} attempts. "
                 "Wait a few minutes and try again; if it continues, check the provider's service status "
                 "or whether network filtering is interrupting the connection."
             )
@@ -723,6 +772,8 @@ async def extract_once(pages: list[tuple[int, bytes]], prompt: str) -> dict[str,
                 detail = f"{detail} Gemini message: {api_message[:300]}"
         elif provider_name == "OpenRouter" and error.response.status_code == 404:
             detail = f"OpenRouter returned 404 for model '{model_name}'. Check OPENROUTER_MODEL."
+        elif provider_name == "Anthropic" and error.response.status_code == 404:
+            detail = f"Anthropic returned 404 for model '{model_name}'. Check ANTHROPIC_MODEL."
         else:
             detail = f"{provider_name} API returned HTTP {error.response.status_code}."
         raise HTTPException(status_code=502, detail=detail) from error
@@ -745,6 +796,12 @@ async def extract_once(pages: list[tuple[int, bytes]], prompt: str) -> dict[str,
                 for step in result["steps"]
                 if step.get("type") == "model_output"
                 for item in step.get("content", [])
+                if item.get("type") == "text" and "text" in item
+            )
+        elif provider_name == "Anthropic":
+            content = "".join(
+                item["text"]
+                for item in result["content"]
                 if item.get("type") == "text" and "text" in item
             )
         else:
@@ -1041,18 +1098,32 @@ def logout(request: Request) -> Response:
 @app.get("/api/status")
 def status() -> dict[str, Any]:
     providers = []
+    if ANTHROPIC_API_KEY:
+        providers.append(f"Anthropic primary ({ANTHROPIC_MODEL})")
     if GEMINI_API_KEY:
-        providers.append(f"Gemini ({GEMINI_MODEL})")
+        role = "fallback" if providers else "primary"
+        providers.append(f"Gemini {role} ({GEMINI_MODEL})")
     if GEMINI_API_KEY_BACKUP and GEMINI_API_KEY_BACKUP != GEMINI_API_KEY:
-        role = "fallback" if GEMINI_API_KEY else "primary"
+        role = "fallback" if providers else "primary"
         providers.append(f"Gemini {role} ({GEMINI_MODEL})")
     if OPENROUTER_API_KEY:
-        role = "fallback" if GEMINI_API_KEY or GEMINI_API_KEY_BACKUP else "primary"
+        role = "fallback" if providers else "primary"
         providers.append(f"OpenRouter {role} ({OPENROUTER_MODEL})")
+    if ANTHROPIC_API_KEY:
+        model = ANTHROPIC_MODEL
+    elif GEMINI_API_KEY or GEMINI_API_KEY_BACKUP:
+        model = GEMINI_MODEL
+    else:
+        model = OPENROUTER_MODEL
     return {
         "provider": " + ".join(providers),
-        "model": GEMINI_MODEL if GEMINI_API_KEY or GEMINI_API_KEY_BACKUP else OPENROUTER_MODEL,
-        "configured": bool(GEMINI_API_KEY or GEMINI_API_KEY_BACKUP or OPENROUTER_API_KEY),
+        "model": model,
+        "configured": bool(
+            ANTHROPIC_API_KEY
+            or GEMINI_API_KEY
+            or GEMINI_API_KEY_BACKUP
+            or OPENROUTER_API_KEY
+        ),
     }
 
 

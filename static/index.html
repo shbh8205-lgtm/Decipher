@@ -1,5 +1,6 @@
 <!doctype html>
 <html lang="en">
+
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -20,148 +21,755 @@
       --red: #a33434;
       font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
     }
-    * { box-sizing: border-box; }
-    body { margin: 0; color: var(--ink); background: var(--canvas); }
-    button, input { font: inherit; }
-    button { cursor: pointer; }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: var(--canvas);
+    }
+
+    button,
+    input {
+      font: inherit;
+    }
+
+    button {
+      cursor: pointer;
+    }
+
     header {
-      display: flex; align-items: center; justify-content: space-between; gap: 20px;
-      padding: 18px clamp(20px, 5vw, 72px); background: var(--surface); border-bottom: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+      padding: 18px clamp(20px, 5vw, 72px);
+      background: var(--surface);
+      border-bottom: 1px solid var(--line);
     }
-    .brand { display: flex; align-items: center; gap: 12px; font-weight: 750; letter-spacing: -.03em; }
-    .brand-mark { display: block; width: 40px; height: 40px; border-radius: 12px; }
-    .brand small { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; font-weight: 500; letter-spacing: 0; }
-    .model-status { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; }
-    .dot { width: 8px; height: 8px; border-radius: 50%; background: #cf9d31; }
-    .dot.ready { background: #2b9a6f; }
-    main { max-width: 1440px; margin: 0 auto; padding: 34px clamp(18px, 4vw, 56px) 60px; }
-    .intro { display: flex; justify-content: space-between; align-items: end; gap: 24px; margin-bottom: 25px; }
-    h1 { margin: 0 0 8px; font-size: clamp(25px, 3vw, 34px); letter-spacing: -.04em; }
-    .intro p { max-width: 660px; margin: 0; color: var(--muted); line-height: 1.55; }
-    .local-note { color: var(--muted); font-size: 12px; text-align: right; }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-weight: 750;
+      letter-spacing: -.03em;
+    }
+
+    .brand-mark {
+      display: block;
+      width: 40px;
+      height: 40px;
+      border-radius: 12px;
+    }
+
+    .brand small {
+      display: block;
+      margin-top: 2px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 500;
+      letter-spacing: 0;
+    }
+
+    .model-status {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #cf9d31;
+    }
+
+    .dot.ready {
+      background: #2b9a6f;
+    }
+
+    main {
+      max-width: 1440px;
+      margin: 0 auto;
+      padding: 34px clamp(18px, 4vw, 56px) 60px;
+    }
+
+    .intro {
+      display: flex;
+      justify-content: space-between;
+      align-items: end;
+      gap: 24px;
+      margin-bottom: 25px;
+    }
+
+    h1 {
+      margin: 0 0 8px;
+      font-size: clamp(25px, 3vw, 34px);
+      letter-spacing: -.04em;
+    }
+
+    .intro p {
+      max-width: 660px;
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.55;
+    }
+
+    .local-note {
+      color: var(--muted);
+      font-size: 12px;
+      text-align: end;
+    }
+
     .upload {
-      display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 20px 22px;
-      background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 2px 8px #19302f08;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      padding: 20px 22px;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      box-shadow: 0 2px 8px #19302f08;
     }
-    .upload-copy { display: flex; align-items: center; gap: 14px; }
-    .upload-icon { display: grid; place-items: center; flex: none; width: 42px; height: 42px; color: var(--teal); background: #e6f4f0; border-radius: 12px; font-size: 20px; }
-    .upload-copy strong { display: block; margin-bottom: 4px; }
-    .upload-copy span { color: var(--muted); font-size: 13px; }
-    .group-option { display: flex; align-items: center; gap: 7px; color: var(--muted); font-size: 12px; }
-    .group-option input { accent-color: var(--teal); }
-    .consent { display: flex; align-items: flex-start; gap: 9px; margin-top: 14px; padding: 12px 14px; color: var(--muted); background: #fff8e9; border: 1px solid #f0dfba; border-radius: 10px; font-size: 12px; line-height: 1.5; }
-    .consent input { flex: none; margin-top: 2px; accent-color: var(--teal); }
-    .actions { display: flex; gap: 10px; align-items: center; }
-    .button { border: 0; padding: 11px 16px; color: white; background: var(--teal); border-radius: 9px; font-weight: 650; }
-    .button:hover { background: var(--teal-dark); }
-    .button:disabled { opacity: .55; cursor: wait; }
-    .button.secondary { color: var(--teal-dark); background: #e8f3f0; }
-    .button.danger { color: #a33434; background: #fff0f0; }
-    .button.danger:hover { background: #f9dddd; }
-    .button.export { padding: 7px 10px; font-size: 12px; }
-    .button.disabled { opacity: .55; }
-    input[type=file] { display: none; }
-    #uploadStatus { margin: 12px 2px 0; color: var(--muted); font-size: 13px; min-height: 18px; }
-    .workspace { display: grid; grid-template-columns: minmax(320px, .85fr) minmax(440px, 1.15fr); gap: 18px; margin-top: 18px; align-items: start; }
-    .panel { overflow: hidden; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 2px 8px #19302f08; }
-    .panel-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 17px 19px; border-bottom: 1px solid var(--line); }
-    .panel-head h2 { margin: 0; font-size: 15px; }
-    .count { padding: 3px 8px; color: var(--muted); background: var(--canvas); border-radius: 20px; font-size: 12px; }
-    .records { max-height: 630px; overflow: auto; }
-    .record-row { display: flex; align-items: center; gap: 8px; padding: 14px 18px; border-bottom: 1px solid #edf1ef; background: white; color: var(--ink); }
-    .record-row:hover, .record-row.selected { background: #f1f8f6; }
-    .record-row.selected { box-shadow: inset 3px 0 var(--teal); }
-    .record-select { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; padding: 0; text-align: left; border: 0; background: transparent; color: inherit; cursor: pointer; }
-    .record-delete { flex: none; padding: 7px 9px; color: #a33434; background: #fff0f0; border: 0; border-radius: 7px; font-size: 11px; font-weight: 650; cursor: pointer; }
-    .record-delete:hover { background: #f9dddd; }
-    .record-delete:disabled { opacity: .55; cursor: wait; }
-    .record-thumb { width: 48px; height: 60px; flex: none; object-fit: cover; object-position: top center; background: #edf3f1; border: 1px solid var(--line); border-radius: 6px; }
-    .record-thumb-placeholder { display: grid; place-items: center; color: var(--muted); font-size: 18px; }
-    .row-main { min-width: 0; }
-    .row-main strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
-    .row-main small { display: block; margin-top: 5px; color: var(--muted); font-size: 12px; }
-    .badge { flex: none; padding: 4px 8px; color: var(--amber); background: var(--amber-bg); border-radius: 20px; font-size: 11px; font-weight: 650; }
-    .badge.approved { color: #19734e; background: #e6f5ec; }
-    .verification-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
-    .verification-chip { display: inline-flex; padding: 3px 7px; color: #315f59; background: #e8f3f0; border-radius: 20px; font-size: 10px; line-height: 1.35; }
-    .verification-chip.conflict, .verification-chip.barcode_only { color: var(--amber); background: var(--amber-bg); }
-    .verification-chip.ocr_only { color: var(--muted); background: #eef1f0; }
-    .verification-chip.manual { color: #19734e; background: #e6f5ec; }
-    .empty { padding: 48px 22px; color: var(--muted); text-align: center; font-size: 13px; line-height: 1.6; }
-    .detail-content { padding: 18px 20px 20px; }
-    .source-line { display: flex; justify-content: space-between; gap: 10px; color: var(--muted); font-size: 12px; margin-bottom: 14px; }
-    .review-alert { padding: 11px 13px; margin-bottom: 16px; color: var(--amber); background: var(--amber-bg); border-radius: 9px; font-size: 12px; line-height: 1.5; }
-    .review-alert.ok { color: #19734e; background: #e6f5ec; }
-    .fields { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-    .field label { display: block; margin-bottom: 6px; color: var(--muted); font-size: 11px; font-weight: 650; }
-    .field input { width: 100%; padding: 10px 11px; color: var(--ink); background: #fff; border: 1px solid var(--line); border-radius: 8px; outline: none; }
-    .field input:focus { border-color: #65aa9f; box-shadow: 0 0 0 3px #087f7216; }
-    .field input.low { border-color: #d9a23e; }
-    .field.wide { grid-column: 1 / -1; }
-    .field-hint { margin-top: 5px; color: #8b6a2e; font-size: 10px; }
-    .field-evidence { margin-top: 5px; color: var(--muted); font-size: 10px; line-height: 1.4; }
-    .detail-actions { display: flex; justify-content: flex-end; gap: 9px; margin-top: 17px; }
-    .preview-wrap { margin-top: 18px; }
-    .preview-wrap h3 { margin: 0 0 9px; color: var(--muted); font-size: 12px; }
-    .preview { display: grid; place-items: center; min-height: 170px; max-height: 310px; overflow: auto; color: var(--muted); background: #f5f7f6; border: 1px dashed var(--line); border-radius: 9px; font-size: 12px; text-align: center; }
-    .preview img { display: block; width: 100%; height: auto; object-fit: contain; }
-    .preview iframe { width: 100%; height: 310px; border: 0; }
-    .preview-page { width: 100%; padding: 8px; }
-    .preview-page small { display: block; margin-bottom: 6px; color: var(--muted); }
-    .privacy { margin-top: 24px; padding: 13px 16px; color: var(--muted); background: #eaf1ef; border-radius: 10px; font-size: 12px; line-height: 1.5; }
-    .progress-track { width: 100%; height: 7px; margin-top: 9px; accent-color: var(--teal); }
-    .progress-track[hidden] { display: none; }
-    .demo-banner { padding: 9px 16px; color: #704a00; background: #fff1cc; border-bottom: 1px solid #ecd89d; text-align: center; font-size: 13px; font-weight: 700; }
-    .logout-form { margin-left: auto; }
-    .logout-button { padding: 7px 10px; color: var(--teal-dark); background: #e8f3f0; border: 0; border-radius: 8px; font-size: 12px; font-weight: 650; }
+
+    .upload-copy {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .upload-icon {
+      display: grid;
+      place-items: center;
+      flex: none;
+      width: 42px;
+      height: 42px;
+      color: var(--teal);
+      background: #e6f4f0;
+      border-radius: 12px;
+      font-size: 20px;
+    }
+
+    .upload-copy strong {
+      display: block;
+      margin-bottom: 4px;
+    }
+
+    .upload-copy span {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .group-option {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .group-option input {
+      accent-color: var(--teal);
+    }
+
+    .consent {
+      display: flex;
+      align-items: flex-start;
+      gap: 9px;
+      margin-top: 14px;
+      padding: 12px 14px;
+      color: var(--muted);
+      background: #fff8e9;
+      border: 1px solid #f0dfba;
+      border-radius: 10px;
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    .consent input {
+      flex: none;
+      margin-top: 2px;
+      accent-color: var(--teal);
+    }
+
+    .actions {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .button {
+      border: 0;
+      padding: 11px 16px;
+      color: white;
+      background: var(--teal);
+      border-radius: 9px;
+      font-weight: 650;
+    }
+
+    .button:hover {
+      background: var(--teal-dark);
+    }
+
+    .button:disabled {
+      opacity: .55;
+      cursor: wait;
+    }
+
+    .button.secondary {
+      color: var(--teal-dark);
+      background: #e8f3f0;
+    }
+
+    .button.danger {
+      color: #a33434;
+      background: #fff0f0;
+    }
+
+    .button.danger:hover {
+      background: #f9dddd;
+    }
+
+    .button.export {
+      padding: 7px 10px;
+      font-size: 12px;
+    }
+
+    .button.disabled {
+      opacity: .55;
+    }
+
+    input[type=file] {
+      display: none;
+    }
+
+    #uploadStatus {
+      margin: 12px 2px 0;
+      color: var(--muted);
+      font-size: 13px;
+      min-height: 18px;
+    }
+
+    .workspace {
+      display: grid;
+      grid-template-columns: minmax(320px, .85fr) minmax(440px, 1.15fr);
+      gap: 18px;
+      margin-top: 18px;
+      align-items: start;
+    }
+
+    .panel {
+      overflow: hidden;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      box-shadow: 0 2px 8px #19302f08;
+    }
+
+    .panel-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 17px 19px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .panel-head h2 {
+      margin: 0;
+      font-size: 15px;
+    }
+
+    .count {
+      padding: 3px 8px;
+      color: var(--muted);
+      background: var(--canvas);
+      border-radius: 20px;
+      font-size: 12px;
+    }
+
+    .records {
+      max-height: 630px;
+      overflow: auto;
+    }
+
+    .record-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 14px 18px;
+      border-bottom: 1px solid #edf1ef;
+      background: white;
+      color: var(--ink);
+    }
+
+    .record-row:hover,
+    .record-row.selected {
+      background: #f1f8f6;
+    }
+
+    .record-row.selected {
+      box-shadow: inset 3px 0 var(--teal);
+    }
+
+    :dir(rtl) .record-row.selected {
+      box-shadow: inset -3px 0 var(--teal);
+    }
+
+    .record-select {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex: 1;
+      min-width: 0;
+      padding: 0;
+      text-align: start;
+      border: 0;
+      background: transparent;
+      color: inherit;
+      cursor: pointer;
+    }
+
+    .record-delete {
+      flex: none;
+      padding: 7px 9px;
+      color: #a33434;
+      background: #fff0f0;
+      border: 0;
+      border-radius: 7px;
+      font-size: 11px;
+      font-weight: 650;
+      cursor: pointer;
+    }
+
+    .record-delete:hover {
+      background: #f9dddd;
+    }
+
+    .record-delete:disabled {
+      opacity: .55;
+      cursor: wait;
+    }
+
+    .record-thumb {
+      width: 48px;
+      height: 60px;
+      flex: none;
+      object-fit: cover;
+      object-position: top center;
+      background: #edf3f1;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+    }
+
+    .record-thumb-placeholder {
+      display: grid;
+      place-items: center;
+      color: var(--muted);
+      font-size: 18px;
+    }
+
+    .row-main {
+      min-width: 0;
+    }
+
+    .row-main strong {
+      display: block;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 13px;
+    }
+
+    .row-main small {
+      display: block;
+      margin-top: 5px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .badge {
+      flex: none;
+      padding: 4px 8px;
+      color: var(--amber);
+      background: var(--amber-bg);
+      border-radius: 20px;
+      font-size: 11px;
+      font-weight: 650;
+    }
+
+    .badge.approved {
+      color: #19734e;
+      background: #e6f5ec;
+    }
+
+    .verification-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+      margin-top: 7px;
+    }
+
+    .verification-chip {
+      display: inline-flex;
+      padding: 3px 7px;
+      color: #315f59;
+      background: #e8f3f0;
+      border-radius: 20px;
+      font-size: 10px;
+      line-height: 1.35;
+    }
+
+    .verification-chip.conflict,
+    .verification-chip.barcode_only {
+      color: var(--amber);
+      background: var(--amber-bg);
+    }
+
+    .verification-chip.ocr_only {
+      color: var(--muted);
+      background: #eef1f0;
+    }
+
+    .verification-chip.manual {
+      color: #19734e;
+      background: #e6f5ec;
+    }
+
+    .empty {
+      padding: 48px 22px;
+      color: var(--muted);
+      text-align: center;
+      font-size: 13px;
+      line-height: 1.6;
+    }
+
+    .detail-content {
+      padding: 18px 20px 20px;
+    }
+
+    .source-line {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      color: var(--muted);
+      font-size: 12px;
+      margin-bottom: 14px;
+    }
+
+    .review-alert {
+      padding: 11px 13px;
+      margin-bottom: 16px;
+      color: var(--amber);
+      background: var(--amber-bg);
+      border-radius: 9px;
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    .review-alert.ok {
+      color: #19734e;
+      background: #e6f5ec;
+    }
+
+    .fields {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+
+    .field label {
+      display: block;
+      margin-bottom: 6px;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 650;
+    }
+
+    .field input {
+      width: 100%;
+      padding: 10px 11px;
+      color: var(--ink);
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      outline: none;
+    }
+
+    .field input:focus {
+      border-color: #65aa9f;
+      box-shadow: 0 0 0 3px #087f7216;
+    }
+
+    .field input.low {
+      border-color: #d9a23e;
+    }
+
+    .field.wide {
+      grid-column: 1 / -1;
+    }
+
+    .field-hint {
+      margin-top: 5px;
+      color: #8b6a2e;
+      font-size: 10px;
+    }
+
+    .field-evidence {
+      margin-top: 5px;
+      color: var(--muted);
+      font-size: 10px;
+      line-height: 1.4;
+    }
+
+    .detail-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 9px;
+      margin-top: 17px;
+    }
+
+    .preview-wrap {
+      margin-top: 18px;
+    }
+
+    .preview-wrap h3 {
+      margin: 0 0 9px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .preview {
+      display: grid;
+      place-items: center;
+      min-height: 170px;
+      max-height: 310px;
+      overflow: auto;
+      color: var(--muted);
+      background: #f5f7f6;
+      border: 1px dashed var(--line);
+      border-radius: 9px;
+      font-size: 12px;
+      text-align: center;
+    }
+
+    .preview img {
+      display: block;
+      width: 100%;
+      height: auto;
+      object-fit: contain;
+    }
+
+    .preview iframe {
+      width: 100%;
+      height: 310px;
+      border: 0;
+    }
+
+    .preview-page {
+      width: 100%;
+      padding: 8px;
+    }
+
+    .preview-page small {
+      display: block;
+      margin-bottom: 6px;
+      color: var(--muted);
+    }
+
+    .privacy {
+      margin-top: 24px;
+      padding: 13px 16px;
+      color: var(--muted);
+      background: #eaf1ef;
+      border-radius: 10px;
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    .progress-track {
+      width: 100%;
+      height: 7px;
+      margin-top: 9px;
+      accent-color: var(--teal);
+    }
+
+    .progress-track[hidden] {
+      display: none;
+    }
+
+    .demo-banner {
+      padding: 9px 16px;
+      color: #704a00;
+      background: #fff1cc;
+      border-bottom: 1px solid #ecd89d;
+      text-align: center;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-inline-start: auto;
+    }
+
+    .logout-form {
+      margin: 0;
+    }
+
+    .language-button {
+      padding: 7px 10px;
+      color: var(--teal-dark);
+      background: #e8f3f0;
+      border: 0;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 650;
+    }
+
+    .logout-button {
+      padding: 7px 10px;
+      color: var(--teal-dark);
+      background: #e8f3f0;
+      border: 0;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 650;
+    }
+
     @media (max-width: 900px) {
-      .workspace { grid-template-columns: 1fr; }
-      .records { max-height: 300px; }
+      .workspace {
+        grid-template-columns: 1fr;
+      }
+
+      .records {
+        max-height: 300px;
+      }
     }
+
     @media (max-width: 600px) {
-      header { align-items: flex-start; }
-      .model-status { max-width: 130px; text-align: right; font-size: 11px; }
-      .intro { display: block; }
-      .local-note { margin-top: 12px; text-align: left; }
-      .upload { align-items: flex-start; flex-direction: column; }
-      .actions { width: 100%; }
-      .actions .button { flex: 1; }
-      .fields { grid-template-columns: 1fr; }
-      .field.wide { grid-column: auto; }
+      header {
+        align-items: flex-start;
+      }
+
+      .model-status {
+        max-width: 130px;
+        text-align: right;
+        font-size: 11px;
+      }
+
+      .intro {
+        display: block;
+      }
+
+      .local-note {
+        margin-top: 12px;
+        text-align: start;
+      }
+
+      .upload {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      .actions {
+        width: 100%;
+      }
+
+      .actions .button {
+        flex: 1;
+      }
+
+      .fields {
+        grid-template-columns: 1fr;
+      }
+
+      .field.wide {
+        grid-column: auto;
+      }
     }
   </style>
 </head>
+
 <body>
   <!-- DEMO_BANNER -->
   <header>
-    <div class="brand"><img class="brand-mark" src="/static/decipher-mark.svg" alt=""><div>Decipher<small>Authorization review workspace</small></div></div>
-    <div class="model-status"><span class="dot" id="modelDot"></span><span id="modelStatus">Checking AI provider setup…</span></div>
-    <form class="logout-form" action="/logout" method="post"><button class="logout-button" type="submit">Sign out</button></form>
+    <div class="brand"><img class="brand-mark" src="/static/decipher-mark.svg" alt="">
+      <div>Decipher<small data-i18n="brandSubtitle">Authorization review workspace</small></div>
+    </div>
+    <div class="model-status"><span class="dot" id="modelDot"></span><span id="modelStatus"
+        data-i18n="checkingProvider">Checking AI provider setup…</span></div>
+    <div class="header-actions">
+      <button class="language-button" id="languageButton" type="button"
+        aria-label="Switch language to Hebrew">עברית</button>
+      <form class="logout-form" action="/logout" method="post"><button class="logout-button" data-i18n="signOut"
+          type="submit">Sign out</button></form>
+    </div>
   </header>
   <main>
     <section class="intro">
-      <div><h1>Authorization records</h1><p>Extract patient and authorization details from forms, then review uncertain fields before approving records for the lab.</p></div>
-      <div class="local-note">Gemini extraction with OpenRouter fallback · Originals are not retained by this app</div>
+      <div>
+        <h1 data-i18n="pageTitle">Authorization records</h1>
+        <p data-i18n="pageIntro">Extract patient and authorization details from forms, then review uncertain fields
+          before approving records for the lab.</p>
+      </div>
+      <div class="local-note" data-i18n="localNote">Anthropic first, with Gemini and OpenRouter fallback · Originals are
+        not retained by this app</div>
     </section>
     <section class="upload">
-      <div class="upload-copy"><div class="upload-icon">↑</div><div><strong>Upload authorization forms</strong><span>PDF, PNG, JPEG, TIFF, BMP or WebP · Up to 20 MB and 12 pages per form</span></div></div>
-      <div class="actions"><label class="group-option"><input id="groupPages" type="checkbox"> Group selected images as one form</label><input id="fileInput" type="file" multiple accept=".pdf,.png,.jpg,.jpeg,.tif,.tiff,.bmp,.webp"><button id="chooseButton" class="button secondary" type="button">Choose files</button><button id="uploadButton" class="button" type="button" disabled>Extract forms</button></div>
+      <div class="upload-copy">
+        <div class="upload-icon">↑</div>
+        <div><strong data-i18n="uploadTitle">Upload authorization forms</strong><span data-i18n="uploadHint">PDF, PNG,
+            JPEG, TIFF, BMP or WebP · Up to 20 MB and 12 pages per form</span></div>
+      </div>
+      <div class="actions"><label class="group-option"><input id="groupPages" type="checkbox"><span
+            data-i18n="groupImages">Group selected images as one form</span></label><input id="fileInput" type="file"
+          multiple accept=".pdf,.png,.jpg,.jpeg,.tif,.tiff,.bmp,.webp"><button id="chooseButton"
+          class="button secondary" data-i18n="chooseFiles" type="button">Choose files</button><button id="uploadButton"
+          class="button" data-i18n="extractForms" type="button" disabled>Extract forms</button></div>
     </section>
-    <label class="consent"><input id="externalConsent" type="checkbox"><span>I am authorized to process these documents using Google Gemini and, if the primary provider is unavailable, OpenRouter. I understand the document images may be sent to Google or OpenRouter for processing and that responses may contain extracted medical and identity information, subject to the configured account terms.</span></label>
+    <label class="consent"><input id="externalConsent" type="checkbox"><span data-i18n="consent">I am authorized to
+        process these documents using the configured AI providers. I understand document images may be sent to Anthropic
+        first, then to Google Gemini or OpenRouter if a preceding provider is unavailable. Responses may contain
+        extracted medical and identity information, subject to the configured account terms.</span></label>
     <div id="uploadStatus" role="status"></div>
     <progress id="uploadProgress" class="progress-track" max="100" value="0" hidden></progress>
     <section class="workspace">
       <div class="panel">
-        <div class="panel-head"><h2>Records</h2><div class="actions"><span class="count" id="recordCount">0</span><a id="exportButton" class="button secondary export" href="/api/records.csv" download>Export CSV</a></div></div>
-        <div class="records" id="recordsList"><div class="empty">No records yet.<br>Upload a form to get started.</div></div>
+        <div class="panel-head">
+          <h2 data-i18n="records">Records</h2>
+          <div class="actions"><span class="count" id="recordCount">0</span><a id="exportButton"
+              class="button secondary export" data-i18n="exportCsv" href="/api/records.csv" download>Export CSV</a>
+          </div>
+        </div>
+        <div class="records" id="recordsList">
+          <div class="empty" data-i18n="emptyRecords">No records yet.<br>Upload a form to get started.</div>
+        </div>
       </div>
       <div class="panel">
-        <div class="panel-head"><h2>Review and correct</h2><span class="count" id="recordState">Select a record</span></div>
-        <div class="empty" id="detailEmpty">Select a record from the list to inspect its extracted fields.</div>
+        <div class="panel-head">
+          <h2 data-i18n="reviewCorrect">Review and correct</h2><span class="count" id="recordState"
+            data-i18n="selectRecord">Select a record</span>
+        </div>
+        <div class="empty" id="detailEmpty" data-i18n="detailEmpty">Select a record from the list to inspect its
+          extracted fields.</div>
         <div class="detail-content" id="detailContent" hidden></div>
       </div>
     </section>
-    <div class="privacy"><strong>Privacy:</strong> document images may be sent to Google Gemini or, if the primary provider is unavailable, OpenRouter for extraction. API keys stay on the server. Extracted records are saved in SQLite on the configured data disk. Confirm that your organization's privacy, consent, and regulatory requirements permit using these providers for medical documents.</div>
+    <div class="privacy"><strong data-i18n="privacyTitle">Privacy:</strong> <span data-i18n="privacyText">Document
+        images may be sent to Anthropic first, then to Google Gemini or OpenRouter if a preceding provider is
+        unavailable. API keys stay on the server. Extracted records are saved in SQLite on the configured data disk.
+        Confirm that your organization's privacy, consent, and regulatory requirements permit using each configured
+        provider for medical documents.</span></div>
   </main>
   <script>
     const records = [];
@@ -170,6 +778,238 @@
     let selectedId = null;
     let modelReady = false;
     const $ = (selector) => document.querySelector(selector);
+    const translations = {
+      en: {
+        brandSubtitle: "Authorization review workspace",
+        checkingProvider: "Checking AI provider setup…",
+        switchLanguage: "Switch language to Hebrew",
+        signOut: "Sign out",
+        pageTitle: "Authorization records",
+        pageIntro: "Extract patient and authorization details from forms, then review uncertain fields before approving records for the lab.",
+        localNote: "Anthropic first, with Gemini and OpenRouter fallback · Originals are not retained by this app",
+        uploadTitle: "Upload authorization forms",
+        uploadHint: "PDF, PNG, JPEG, TIFF, BMP or WebP · Up to 20 MB and 12 pages per form",
+        groupImages: "Group selected images as one form",
+        chooseFiles: "Choose files",
+        extractForms: "Extract forms",
+        consent: "I am authorized to process these documents using the configured AI providers. I understand document images may be sent to Anthropic first, then to Google Gemini or OpenRouter if a preceding provider is unavailable. Responses may contain extracted medical and identity information, subject to the configured account terms.",
+        records: "Records",
+        exportCsv: "Export CSV",
+        emptyRecords: "No records yet.<br>Upload a form to get started.",
+        reviewCorrect: "Review and correct",
+        selectRecord: "Select a record",
+        needsReview: "Needs review",
+        detailEmpty: "Select a record from the list to inspect its extracted fields.",
+        privacyTitle: "Privacy:",
+        demoBanner: "Demo environment - sample data only",
+        privacyText: "Document images may be sent to Anthropic first, then to Google Gemini or OpenRouter if a preceding provider is unavailable. API keys stay on the server. Extracted records are saved in SQLite on the configured data disk. Confirm that your organization's privacy, consent, and regulatory requirements permit using each configured provider for medical documents.",
+        configured: "configured",
+        noApiKey: "No extraction API key configured",
+        providerCheckFailed: "Could not check AI provider configuration",
+        noRecordsExport: "There are no records to export yet.",
+        noName: "Name not identified",
+        noAuthorization: "No authorization number",
+        approved: "Approved",
+        review: "Review",
+        selectRecordFor: "Select {name} — {authorization}",
+        deleteRecordFor: "Delete {name} — {authorization}",
+        previewOf: "Preview of {filename}",
+        delete: "Delete",
+        unverified: "Unverified",
+        candidate: "Candidate ",
+        barcodeOcr: "Barcode + OCR",
+        barcodeOnly: "Barcode only",
+        ocrOnly: "OCR only",
+        conflict: "Conflict",
+        manual: "Manual",
+        separateValues: "Separate multiple values with commas",
+        lowConfidence: "Low extraction confidence ({confidence}%)",
+        noEvidence: "None returned",
+        visibleEvidence: "Visible evidence:",
+        savedFirstPage: "Saved first-page thumbnail · original file not retained",
+        noSavedPreview: "No saved preview is available for this record.",
+        page: "Page",
+        pages: "Pages",
+        reviewRequired: "Review required",
+        noReviewFlags: "No automatic review flags. Verify the values before approval.",
+        firstName: "First name",
+        lastName: "Last name",
+        idNumber: "ID number",
+        centralNumbers: "Central number(s)",
+        receiptDate: "Sample receipt date",
+        entity: "HMO / hospital",
+        authorizationField: "Authorization / requirement / sample number",
+        deleteRecord: "Delete record",
+        saveCorrections: "Save corrections",
+        approveRecord: "Approve record",
+        previewTitle: "Original document · preview is held only in this browser",
+        originalForm: "Original authorization form",
+        deleteConfirm: "Delete the record for {filename}? This cannot be undone.",
+        couldNotDelete: "Could not delete this record.",
+        couldNotSave: "Could not save this record.",
+        recordSaved: "Record saved.",
+        recordDeleted: "Record deleted.",
+        fileSelected: "{count} file(s) selected.",
+        consentRequired: "Confirm authorization for external AI processing before uploading.",
+        groupedPdf: "Grouped mode accepts image pages; PDFs are analyzed one page at a time automatically.",
+        extractingGrouped: "Extracting one form from {filename} and {count} additional page(s)…",
+        extractingPdf: "Extracting each PDF page separately: {filename}",
+        extractingUpload: "Extracting upload {current} of {total}: {filename}",
+        extractionFailed: "Extraction failed.",
+        uploadSummary: "{completed} upload batch(es) attempted; {successful} succeeded and {records} record(s) added. PDF pages are extracted separately.",
+        couldNotLoad: "Could not load saved records.",
+        switchToHebrew: "עברית",
+        title: "Decipher | Authorization review",
+      },
+      he: {
+        brandSubtitle: "סביבת בדיקה ואישור הרשאות",
+        checkingProvider: "בודק את הגדרות ספקי הבינה המלאכותית…",
+        switchLanguage: "החלפת שפה לאנגלית",
+        signOut: "התנתקות",
+        pageTitle: "רשומות התחייבויות",
+        pageIntro: "חלצו פרטי מטופל והרשאה מטפסים, בדקו שדות לא ודאיים ואשרו רשומות למעבדה.",
+        localNote: "חילוץ בעזרת בינה מלאכותית עם ספק גיבוי · הקבצים המקוריים אינם נשמרים באפליקציה",
+        uploadTitle: "העלאת טופסי הרשאה",
+        uploadHint: "PDF, PNG, JPEG, TIFF, BMP או WebP · עד 20 MB ו־12 עמודים לטופס",
+        groupImages: "איחוד התמונות שנבחרו לטופס אחד",
+        chooseFiles: "בחירת קבצים",
+        extractForms: "חילוץ טפסים",
+        consent: "אני מורשה/ית לעבד את המסמכים באמצעות ספקי הבינה המלאכותית שהוגדרו. ידוע לי שהתמונות עשויות להישלח תחילה ל-Anthropic, ולאחר מכן ל-Google Gemini או ל-OpenRouter אם ספק קודם אינו זמין. התגובות עשויות לכלול מידע רפואי ומידע מזהה, בהתאם לתנאי החשבון שהוגדר.",
+        records: "רשומות",
+        exportCsv: "ייצוא CSV",
+        emptyRecords: "עדיין אין רשומות.<br>העלו טופס כדי להתחיל.",
+        reviewCorrect: "בדיקה ותיקון",
+        selectRecord: "יש לבחור רשומה",
+        needsReview: "נדרשת בדיקה",
+        detailEmpty: "בחרו רשומה מהרשימה כדי לעיין בשדות שחולצו.",
+        privacyTitle: "פרטיות:",
+        demoBanner: "סביבת הדגמה — נתוני דוגמה בלבד",
+        privacyText: "תמונות המסמכים עשויות להישלח תחילה ל-Anthropic, ולאחר מכן ל-Google Gemini או ל-OpenRouter אם ספק קודם אינו זמין. מפתחות ה-API נשארים בשרת. הרשומות שחולצו נשמרות במסד נתונים SQLite בכונן הנתונים שהוגדר. ודאו שמדיניות הפרטיות, ההסכמה והרגולציה של הארגון מתירה שימוש בכל אחד מהספקים שהוגדרו עבור מסמכים רפואיים.",
+        configured: "מוגדר",
+        noApiKey: "לא הוגדר מפתח API לחילוץ",
+        providerCheckFailed: "לא ניתן לבדוק את הגדרות ספקי הבינה המלאכותית",
+        noRecordsExport: "אין עדיין רשומות לייצוא.",
+        noName: "השם לא זוהה",
+        noAuthorization: "לא זוהה מספר הרשאה",
+        approved: "אושר",
+        review: "לבדיקה",
+        selectRecordFor: "בחירת {name} — {authorization}",
+        deleteRecordFor: "מחיקת {name} — {authorization}",
+        previewOf: "תצוגה מקדימה של {filename}",
+        delete: "מחיקה",
+        unverified: "לא אומת",
+        candidate: "מועמד ",
+        barcodeOcr: "ברקוד + זיהוי",
+        barcodeOnly: "ברקוד בלבד",
+        ocrOnly: "זיהוי תווים בלבד",
+        conflict: "אי־התאמה",
+        manual: "ידני",
+        separateValues: "הפרידו בין כמה ערכים באמצעות פסיקים",
+        lowConfidence: "רמת ביטחון נמוכה בחילוץ ({confidence}%)",
+        noEvidence: "לא התקבלה ראיה",
+        visibleEvidence: "הראיה במסמך:",
+        savedFirstPage: "תמונה ממוזערת של העמוד הראשון · הקובץ המקורי לא נשמר",
+        noSavedPreview: "אין תצוגה מקדימה שמורה לרשומה זו.",
+        page: "עמוד",
+        pages: "עמודים",
+        reviewRequired: "נדרשת בדיקה",
+        noReviewFlags: "לא נמצאו סימונים לבדיקה אוטומטית. יש לוודא את הערכים לפני האישור.",
+        firstName: "שם פרטי",
+        lastName: "שם משפחה",
+        idNumber: "מספר זהות",
+        centralNumbers: "מספרים מרכזיים",
+        receiptDate: "תאריך קבלת הדגימה",
+        entity: "קופת חולים / בית חולים",
+        authorizationField: "מספר התחייבות / דרישה / דגימה",
+        deleteRecord: "מחיקת רשומה",
+        saveCorrections: "שמירת תיקונים",
+        approveRecord: "אישור הרשומה",
+        previewTitle: "המסמך המקורי · התצוגה נשמרת בדפדפן זה בלבד",
+        originalForm: "טופס ההרשאה המקורי",
+        deleteConfirm: "למחוק את הרשומה של {filename}? לא ניתן לבטל פעולה זו.",
+        couldNotDelete: "לא ניתן למחוק את הרשומה.",
+        couldNotSave: "לא ניתן לשמור את הרשומה.",
+        recordSaved: "הרשומה נשמרה.",
+        recordDeleted: "הרשומה נמחקה.",
+        fileSelected: "נבחרו {count} קבצים.",
+        consentRequired: "יש לאשר הרשאה לעיבוד חיצוני באמצעות בינה מלאכותית לפני ההעלאה.",
+        groupedPdf: "מצב איחוד מיועד לעמודי תמונה; קובצי PDF מנותחים אוטומטית עמוד אחר עמוד.",
+        extractingGrouped: "מחלץ טופס אחד מתוך {filename} ועוד {count} עמודים…",
+        extractingPdf: "מחלץ כל עמוד PDF בנפרד: {filename}",
+        extractingUpload: "מחלץ העלאה {current} מתוך {total}: {filename}",
+        extractionFailed: "החילוץ נכשל.",
+        uploadSummary: "ניסיונות העלאה: {completed}; הצליחו: {successful}; נוספו {records} רשומות. עמודי PDF מחולצים בנפרד.",
+        couldNotLoad: "לא ניתן לטעון את הרשומות השמורות.",
+        switchToHebrew: "עברית",
+        title: "Decipher | בדיקת הרשאות",
+      },
+    };
+    let currentLanguage = localStorage.getItem("decipher-language") === "he" ? "he" : "en";
+
+    function t(key, values = {}) {
+      let text = translations[currentLanguage][key] || translations.en[key] || key;
+      for (const [name, value] of Object.entries(values)) {
+        text = text.replaceAll(`{${name}}`, String(value));
+      }
+      return text;
+    }
+
+    function fieldLabel(field) {
+      const labels = {
+        "first name": "firstName",
+        "last name": "lastName",
+        "id number": "idNumber",
+        "central numbers": "centralNumbers",
+        "received date": "receiptDate",
+        "referring entity": "entity",
+        "authorization number": "authorizationField",
+      };
+      return labels[field] ? t(labels[field]) : field;
+    }
+
+    function localizedReason(reason) {
+      if (currentLanguage === "en") return reason;
+      const fixed = {
+        "Invalid Israeli ID check digit or length": "ספרת הביקורת או אורך מספר הזהות הישראלי אינם תקינים",
+        "Unrecognized referring entity; confirm whether this is a hospital": "הגורם המפנה אינו מזוהה; יש לוודא אם מדובר בבית חולים",
+        "Unrecognized sample receipt date": "תאריך קבלת הדגימה אינו מזוהה",
+        "Missing sample receipt date": "חסר תאריך קבלת דגימה",
+        "Sample receipt date is in the future": "תאריך קבלת הדגימה עתידי",
+        "Sample receipt date is unusually old": "תאריך קבלת הדגימה ישן במיוחד",
+        "Central number conflict: barcode overrides the model reading": "אי־התאמה במספר המרכזי: הברקוד גובר על קריאת המודל",
+        "Central number found only in barcode; confirm": "המספר המרכזי נמצא רק בברקוד; יש לאמת אותו",
+      };
+      if (fixed[reason]) return fixed[reason];
+      const missing = reason.match(/^Missing (.+)$/);
+      if (missing) return `חסר ${fieldLabel(missing[1])}`;
+      const confidence = reason.match(/^Low confidence: (.+)$/);
+      if (confidence) return `רמת ביטחון נמוכה: ${fieldLabel(confidence[1])}`;
+      return reason;
+    }
+
+    function applyLanguage() {
+      document.documentElement.lang = currentLanguage;
+      document.documentElement.dir = currentLanguage === "he" ? "rtl" : "ltr";
+      document.title = t("title");
+      document.querySelectorAll("[data-i18n]").forEach((element) => {
+        element.innerHTML = t(element.dataset.i18n);
+      });
+      const demoBanner = document.querySelector(".demo-banner");
+      if (demoBanner) demoBanner.textContent = t("demoBanner");
+      const button = $("#languageButton");
+      button.textContent = currentLanguage === "he" ? "English" : t("switchToHebrew");
+      button.setAttribute("aria-label", t("switchLanguage"));
+      localStorage.setItem("decipher-language", currentLanguage);
+      renderList();
+      const selectedRecord = records.find((record) => record.id === selectedId);
+      if (selectedRecord) renderDetail(selectedRecord);
+    }
+
+    $("#languageButton").addEventListener("click", () => {
+      currentLanguage = currentLanguage === "en" ? "he" : "en";
+      applyLanguage();
+      checkModel();
+    });
 
     function escapeHtml(value) {
       return String(value ?? "").replace(/[&<>"']/g, (char) => ({
@@ -185,11 +1025,11 @@
         modelReady = ready;
         $("#modelDot").classList.toggle("ready", ready);
         $("#modelStatus").textContent = ready
-          ? `${status.provider} configured`
-          : "No extraction API key configured";
+          ? `${status.provider} ${t("configured")}`
+          : t("noApiKey");
         $("#uploadButton").disabled = !ready || !$("#externalConsent").checked || !$("#fileInput").files.length;
       } catch {
-        $("#modelStatus").textContent = "Could not check AI provider configuration";
+        $("#modelStatus").textContent = t("providerCheckFailed");
         $("#uploadButton").disabled = true;
       }
     }
@@ -200,17 +1040,17 @@
 
     function centralVerificationMarkup(record) {
       const labels = {
-        barcode_ocr_match: "Barcode + OCR",
-        barcode_only: "Barcode only",
-        ocr_only: "OCR only",
-        conflict: "Conflict",
-        manual: "Manual",
+        barcode_ocr_match: t("barcodeOcr"),
+        barcode_only: t("barcodeOnly"),
+        ocr_only: t("ocrOnly"),
+        conflict: t("conflict"),
+        manual: t("manual"),
       };
       const verification = record.barcode_verification || [];
       if (!verification.length) return "";
       return `<div class="verification-chips">${verification.map((item) => {
-        const label = labels[item.status] || "Unverified";
-        const candidate = item.accepted === false ? "Candidate " : "";
+        const label = labels[item.status] || t("unverified");
+        const candidate = item.accepted === false ? t("candidate") : "";
         return `<span class="verification-chip ${escapeHtml(item.status)}">${candidate}${escapeHtml(item.number)} · ${label}</span>`;
       }).join("")}</div>`;
     }
@@ -220,24 +1060,24 @@
       $("#exportButton").setAttribute("aria-disabled", records.length ? "false" : "true");
       $("#exportButton").classList.toggle("disabled", !records.length);
       if (!records.length) {
-        $("#recordsList").innerHTML = '<div class="empty">No records yet.<br>Upload a form to get started.</div>';
+        $("#recordsList").innerHTML = `<div class="empty">${t("emptyRecords")}</div>`;
         return;
       }
       $("#recordsList").innerHTML = records.map((record) => {
-        const name = [record.first_name, record.last_name].filter(Boolean).join(" ") || "Name not identified";
-        const authorization = record.authorization_number || "No authorization number";
-        const status = record.approved ? '<span class="badge approved">Approved</span>' : '<span class="badge">Review</span>';
+        const name = [record.first_name, record.last_name].filter(Boolean).join(" ") || t("noName");
+        const authorization = record.authorization_number || t("noAuthorization");
+        const status = record.approved ? `<span class="badge approved">${t("approved")}</span>` : `<span class="badge">${t("review")}</span>`;
         const thumbnail = thumbnails.get(record.id) || (
           record.preview_thumbnail ? `data:image/jpeg;base64,${record.preview_thumbnail}` : null
         );
         const preview = thumbnail
-          ? `<img class="record-thumb" src="${thumbnail}" alt="Preview of ${escapeHtml(record.source_filename)}">`
+          ? `<img class="record-thumb" src="${thumbnail}" alt="${escapeHtml(t("previewOf", { filename: record.source_filename }))}">`
           : '<span class="record-thumb record-thumb-placeholder" aria-hidden="true">▤</span>';
         return `<div class="record-row ${selectedId === record.id ? "selected" : ""}">
-          <button class="record-select" type="button" data-id="${escapeHtml(record.id)}" aria-label="Select ${escapeHtml(name)} — ${escapeHtml(authorization)}">
+          <button class="record-select" type="button" data-id="${escapeHtml(record.id)}" aria-label="${escapeHtml(t("selectRecordFor", { name, authorization }))}">
             ${preview}<span class="row-main"><strong>${escapeHtml(name)}</strong><small>${escapeHtml(authorization)} · ${escapeHtml(record.source_filename)}</small></span>${status}
           </button>
-          <button class="record-delete" type="button" data-id="${escapeHtml(record.id)}" aria-label="Delete ${escapeHtml(name)} — ${escapeHtml(authorization)}" title="Delete record">Delete</button>
+          <button class="record-delete" type="button" data-id="${escapeHtml(record.id)}" aria-label="${escapeHtml(t("deleteRecordFor", { name, authorization }))}" title="${escapeHtml(t("deleteRecord"))}">${t("delete")}</button>
         </div>`;
       }).join("");
       document.querySelectorAll(".record-select").forEach((button) => {
@@ -254,7 +1094,7 @@
     $("#exportButton").addEventListener("click", (event) => {
       if (!records.length) {
         event.preventDefault();
-        $("#uploadStatus").textContent = "There are no records to export yet.";
+        $("#uploadStatus").textContent = t("noRecordsExport");
       }
     });
 
@@ -263,14 +1103,14 @@
       const confidence = confidenceField ? Number(record.field_confidence?.[confidenceField] ?? 1) : 1;
       const low = confidence < 0.75;
       const renderedValue = Array.isArray(value) ? value.join(", ") : value ?? "";
-      const placeholder = name === "central_numbers" ? "Separate multiple values with commas" : "";
+      const placeholder = name === "central_numbers" ? t("separateValues") : "";
       const evidence = record.evidence?.[name];
       return `<div class="field ${wide ? "wide" : ""}">
         <label for="field-${name}">${label}</label>
         <input id="field-${name}" name="${name}" value="${escapeHtml(renderedValue)}" class="${low ? "low" : ""}" placeholder="${placeholder}">
-        ${low ? `<div class="field-hint">Low extraction confidence (${Math.round(confidence * 100)}%)</div>` : ""}
+        ${low ? `<div class="field-hint">${escapeHtml(t("lowConfidence", { confidence: Math.round(confidence * 100) }))}</div>` : ""}
         ${name === "central_numbers" ? centralVerificationMarkup(record) : ""}
-        <div class="field-evidence">Visible evidence: ${escapeHtml(evidence || "None returned")}</div>
+        <div class="field-evidence">${t("visibleEvidence")} ${escapeHtml(evidence || t("noEvidence"))}</div>
       </div>`;
     }
 
@@ -278,31 +1118,31 @@
       const reasons = reasonsFor(record);
       $("#detailEmpty").hidden = true;
       $("#detailContent").hidden = false;
-      $("#recordState").textContent = record.approved ? "Approved" : "Needs review";
+      $("#recordState").textContent = record.approved ? t("approved") : t("needsReview");
       const previewFiles = previews.get(record.id);
       const preview = previewFiles
         ? previewFiles.map((item) => item.isPdf
-          ? `<div class="preview-page"><small>${escapeHtml(item.name)}</small><iframe title="Original authorization form" src="${item.url}"></iframe></div>`
-          : `<div class="preview-page"><small>${escapeHtml(item.name)}</small><img alt="Original authorization form page" src="${item.url}"></div>`).join("")
+          ? `<div class="preview-page"><small>${escapeHtml(item.name)}</small><iframe title="${t("originalForm")}" src="${item.url}"></iframe></div>`
+          : `<div class="preview-page"><small>${escapeHtml(item.name)}</small><img alt="${t("originalForm")}" src="${item.url}"></div>`).join("")
         : record.preview_thumbnail
-          ? `<div class="preview-page"><small>Saved first-page thumbnail · original file not retained</small><img alt="Saved first-page preview of ${escapeHtml(record.source_filename)}" src="data:image/jpeg;base64,${record.preview_thumbnail}"></div>`
-          : "No saved preview is available for this record.";
+          ? `<div class="preview-page"><small>${t("savedFirstPage")}</small><img alt="${escapeHtml(t("originalForm"))}" src="data:image/jpeg;base64,${record.preview_thumbnail}"></div>`
+          : t("noSavedPreview");
       $("#detailContent").innerHTML = `
-        <div class="source-line"><span>${escapeHtml(record.source_filename)}</span><span>Page${record.source_pages.length === 1 ? "" : "s"} ${escapeHtml(record.source_pages.join(", "))}</span></div>
-        <div class="review-alert ${reasons.length ? "" : "ok"}">${reasons.length ? `<strong>Review required</strong><br>${reasons.map(escapeHtml).join(" · ")}` : "No automatic review flags. Verify the values before approval."}</div>
+        <div class="source-line"><span>${escapeHtml(record.source_filename)}</span><span>${record.source_pages.length === 1 ? t("page") : t("pages")} ${escapeHtml(record.source_pages.join(", "))}</span></div>
+        <div class="review-alert ${reasons.length ? "" : "ok"}">${reasons.length ? `<strong>${t("reviewRequired")}</strong><br>${reasons.map((reason) => escapeHtml(localizedReason(reason))).join(" · ")}` : t("noReviewFlags")}</div>
         <form id="correctionForm">
           <div class="fields">
-            ${fieldMarkup(record, "first_name", "First name", record.first_name)}
-            ${fieldMarkup(record, "last_name", "Last name", record.last_name)}
-            ${fieldMarkup(record, "id_number", "ID number", record.id_number)}
-            ${fieldMarkup(record, "central_numbers", "Central number(s)", record.central_numbers)}
-            ${fieldMarkup(record, "received_date", "Sample receipt date", record.received_date)}
-            ${fieldMarkup(record, "referring_entity", "HMO / hospital", record.referring_entity)}
-            ${fieldMarkup(record, "authorization_number", "Authorization / requirement / sample number", record.authorization_number, true)}
+            ${fieldMarkup(record, "first_name", t("firstName"), record.first_name)}
+            ${fieldMarkup(record, "last_name", t("lastName"), record.last_name)}
+            ${fieldMarkup(record, "id_number", t("idNumber"), record.id_number)}
+            ${fieldMarkup(record, "central_numbers", t("centralNumbers"), record.central_numbers)}
+            ${fieldMarkup(record, "received_date", t("receiptDate"), record.received_date)}
+            ${fieldMarkup(record, "referring_entity", t("entity"), record.referring_entity)}
+            ${fieldMarkup(record, "authorization_number", t("authorizationField"), record.authorization_number, true)}
           </div>
-          <div class="detail-actions"><button class="button danger" id="deleteButton" type="button">Delete record</button><button class="button secondary" type="submit">Save corrections</button><button class="button" id="approveButton" type="button">${record.approved ? "Approved" : "Approve record"}</button></div>
+          <div class="detail-actions"><button class="button danger" id="deleteButton" type="button">${t("deleteRecord")}</button><button class="button secondary" type="submit">${t("saveCorrections")}</button><button class="button" id="approveButton" type="button">${record.approved ? t("approved") : t("approveRecord")}</button></div>
         </form>
-        <div class="preview-wrap"><h3>Original document · preview is held only in this browser</h3><div class="preview">${preview}</div></div>`;
+        <div class="preview-wrap"><h3>${t("previewTitle")}</h3><div class="preview">${preview}</div></div>`;
       $("#correctionForm").addEventListener("submit", async (event) => {
         event.preventDefault();
         const form = new FormData(event.currentTarget);
@@ -333,24 +1173,24 @@
           method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body)
         });
         const result = await response.json();
-        if (!response.ok) throw new Error(result.detail || "Could not save this record.");
+        if (!response.ok) throw new Error(result.detail || t("couldNotSave"));
         Object.assign(record, result);
         renderList();
         renderDetail(record);
-        $("#uploadStatus").textContent = "Record saved.";
+        $("#uploadStatus").textContent = t("recordSaved");
       } catch (error) {
         $("#uploadStatus").textContent = error.message;
       }
     }
 
     async function deleteRecord(record, button) {
-      if (!window.confirm(`Delete the record for ${record.source_filename}? This cannot be undone.`)) return;
+      if (!window.confirm(t("deleteConfirm", { filename: record.source_filename }))) return;
       button.disabled = true;
       try {
         const response = await fetch(`/api/records/${encodeURIComponent(record.id)}`, { method: "DELETE" });
         if (!response.ok) {
           const result = await response.json();
-          throw new Error(result.detail || "Could not delete this record.");
+          throw new Error(result.detail || t("couldNotDelete"));
         }
         const index = records.findIndex((item) => item.id === record.id);
         if (index !== -1) records.splice(index, 1);
@@ -364,9 +1204,9 @@
         } else if (wasSelected) {
           $("#detailContent").hidden = true;
           $("#detailEmpty").hidden = false;
-          $("#recordState").textContent = "Select a record";
+          $("#recordState").textContent = t("selectRecord");
         }
-        $("#uploadStatus").textContent = "Record deleted.";
+        $("#uploadStatus").textContent = t("recordDeleted");
       } catch (error) {
         $("#uploadStatus").textContent = error.message;
         button.disabled = false;
@@ -376,7 +1216,7 @@
     $("#chooseButton").addEventListener("click", () => $("#fileInput").click());
     $("#fileInput").addEventListener("change", (event) => {
       $("#uploadButton").disabled = !event.target.files.length || !modelReady || !$("#externalConsent").checked;
-      $("#uploadStatus").textContent = `${event.target.files.length} file(s) selected.`;
+      $("#uploadStatus").textContent = t("fileSelected", { count: event.target.files.length });
     });
     $("#externalConsent").addEventListener("change", () => {
       $("#uploadButton").disabled = !$("#fileInput").files.length || !modelReady || !$("#externalConsent").checked;
@@ -385,12 +1225,12 @@
       const files = [...$("#fileInput").files];
       if (!files.length) return;
       if (!$("#externalConsent").checked) {
-        $("#uploadStatus").textContent = "Confirm authorization for external Gemini processing before uploading.";
+        $("#uploadStatus").textContent = t("consentRequired");
         return;
       }
       const grouped = $("#groupPages").checked;
       if (grouped && files.some((file) => file.name.toLowerCase().endsWith(".pdf"))) {
-        $("#uploadStatus").textContent = "Grouped mode accepts image pages; PDFs are analyzed one page at a time automatically.";
+        $("#uploadStatus").textContent = t("groupedPdf");
         return;
       }
       const button = $("#uploadButton");
@@ -410,10 +1250,10 @@
           const file = currentFiles[0];
           const isPdf = file.name.toLowerCase().endsWith(".pdf");
           $("#uploadStatus").textContent = grouped
-            ? `Extracting one form from ${file.name} and ${files.length - 1} additional page(s)…`
+            ? t("extractingGrouped", { filename: file.name, count: files.length - 1 })
             : isPdf
-              ? `Extracting each PDF page separately: ${file.name}`
-              : `Extracting upload ${index + 1} of ${groups.length}: ${file.name}`;
+              ? t("extractingPdf", { filename: file.name })
+              : t("extractingUpload", { current: index + 1, total: groups.length, filename: file.name });
           const body = new FormData();
           currentFiles.forEach((currentFile) => body.append("files", currentFile));
           if (grouped) body.append("group_images", "true");
@@ -421,7 +1261,7 @@
           const response = await fetch("/api/extract", { method: "POST", body });
           const result = await response.json();
           if (!response.ok) {
-            errors.push(`${file.name}: ${result.detail || "Extraction failed."}`);
+            errors.push(`${file.name}: ${result.detail || t("extractionFailed")}`);
           } else {
             for (const item of result.errors) errors.push(`${item.filename}: ${item.error}`);
             successfulForms += result.documents.length;
@@ -453,7 +1293,11 @@
         }
         renderList();
         if (records.length) selectRecord(records[0].id);
-        const message = `${completed} upload batch(es) attempted; ${successfulForms} succeeded and ${recordsAdded} record(s) added. PDF pages are extracted separately.`;
+        const message = t("uploadSummary", {
+          completed,
+          successful: successfulForms,
+          records: recordsAdded,
+        });
         $("#uploadStatus").textContent = [message, ...errors].join(" ");
         $("#fileInput").value = "";
       } catch (error) {
@@ -468,7 +1312,7 @@
     async function loadRecords() {
       try {
         const response = await fetch("/api/records");
-        if (!response.ok) throw new Error("Could not load saved records.");
+        if (!response.ok) throw new Error(t("couldNotLoad"));
         const savedRecords = await response.json();
         savedRecords.forEach((record) => {
           records.push(record);
@@ -481,8 +1325,10 @@
         $("#uploadStatus").textContent = error.message;
       }
     }
+    applyLanguage();
     loadRecords();
     checkModel();
   </script>
 </body>
+
 </html>

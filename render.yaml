@@ -12,6 +12,10 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: 3.12.8
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: ANTHROPIC_MODEL
+        value: claude-sonnet-5-5
       - key: GEMINI_API_KEY
         sync: false
       - key: GEMINI_API_KEY_BACKUP

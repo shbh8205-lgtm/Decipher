@@ -201,6 +201,154 @@ class ExtractionApiTests(unittest.TestCase):
         self.assertEqual(body["response_format"]["mime_type"], "application/json")
         self.assertFalse(body["store"])
 
+    def test_anthropic_request_sends_key_image_and_json_schema(self) -> None:
+        extracted = {
+            "content": [{"type": "text", "text": json.dumps({"first_name": "Maya"})}],
+        }
+        requests = []
+
+        async def handler(request: httpx.Request) -> httpx.Response:
+            requests.append(request)
+            return httpx.Response(200, json=extracted)
+
+        original_client = httpx.AsyncClient
+        mock_transport = httpx.MockTransport(handler)
+        with patch.object(main, "ANTHROPIC_API_KEY", "anthropic-key"), patch.object(
+            main, "ANTHROPIC_MODEL", "claude-test-model"
+        ), patch.object(main, "GEMINI_API_KEY", ""), patch.object(
+            main, "GEMINI_API_KEY_BACKUP", ""
+        ), patch.object(main, "OPENROUTER_API_KEY", ""):
+            with patch.object(
+                main.httpx,
+                "AsyncClient",
+                side_effect=lambda **kwargs: original_client(transport=mock_transport, **kwargs),
+            ):
+                result = asyncio.run(main.extract_once([(1, b"jpeg-bytes")], "test prompt"))
+
+        self.assertEqual(result, {"first_name": "Maya"})
+        self.assertEqual(len(requests), 1)
+        request = requests[0]
+        self.assertEqual(str(request.url), main.ANTHROPIC_API_URL)
+        self.assertEqual(request.headers["x-api-key"], "anthropic-key")
+        self.assertEqual(request.headers["anthropic-version"], "2023-06-01")
+        body = json.loads(request.content)
+        self.assertEqual(body["model"], "claude-test-model")
+        self.assertEqual(body["max_tokens"], 4096)
+        self.assertEqual(body["messages"][0]["content"][0], {"type": "text", "text": "test prompt"})
+        self.assertEqual(
+            body["messages"][0]["content"][1],
+            {
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": "image/jpeg",
+                    "data": base64.b64encode(b"jpeg-bytes").decode("ascii"),
+                },
+            },
+        )
+        self.assertEqual(
+            body["output_config"]["format"],
+            {"type": "json_schema", "schema": main.EXTRACTION_SCHEMA},
+        )
+
+    def test_anthropic_falls_back_to_gemini_after_overload_retries(self) -> None:
+        extracted = {
+            "status": "completed",
+            "steps": [{
+                "type": "model_output",
+                "content": [{"type": "text", "text": json.dumps({"first_name": "Maya"})}],
+            }],
+        }
+        requests = []
+
+        async def handler(request: httpx.Request) -> httpx.Response:
+            requests.append(request)
+            if request.url.host == "api.anthropic.com":
+                return httpx.Response(529)
+            return httpx.Response(200, json=extracted)
+
+        original_client = httpx.AsyncClient
+        mock_transport = httpx.MockTransport(handler)
+        with patch.object(main, "ANTHROPIC_API_KEY", "anthropic-key"), patch.object(
+            main, "GEMINI_API_KEY", "gemini-key"
+        ), patch.object(main, "GEMINI_API_KEY_BACKUP", ""), patch.object(
+            main, "OPENROUTER_API_KEY", ""
+        ), patch.object(main.asyncio, "sleep", new=AsyncMock()):
+            with patch.object(
+                main.httpx,
+                "AsyncClient",
+                side_effect=lambda **kwargs: original_client(transport=mock_transport, **kwargs),
+            ):
+                result = asyncio.run(main.extract_once([(1, b"jpeg-bytes")], "test prompt"))
+
+        self.assertEqual(result, {"first_name": "Maya"})
+        self.assertEqual(len(requests), 4)
+        self.assertEqual(str(requests[0].url), main.ANTHROPIC_API_URL)
+        self.assertEqual(requests[0].headers["x-api-key"], "anthropic-key")
+        self.assertEqual(str(requests[2].url), main.ANTHROPIC_API_URL)
+        self.assertEqual(str(requests[3].url), main.GEMINI_API_URL)
+        self.assertEqual(requests[3].headers["x-goog-api-key"], "gemini-key")
+
+    def test_anthropic_400_and_418_fall_back_to_gemini(self) -> None:
+        extracted = {
+            "status": "completed",
+            "steps": [{
+                "type": "model_output",
+                "content": [{"type": "text", "text": json.dumps({"first_name": "Maya"})}],
+            }],
+        }
+
+        for status_code in (400, 418):
+            requests = []
+
+            async def handler(request: httpx.Request) -> httpx.Response:
+                requests.append(request)
+                if request.url.host == "api.anthropic.com":
+                    return httpx.Response(status_code)
+                return httpx.Response(200, json=extracted)
+
+            original_client = httpx.AsyncClient
+            mock_transport = httpx.MockTransport(handler)
+            with self.subTest(status_code=status_code):
+                with patch.object(main, "ANTHROPIC_API_KEY", "anthropic-key"), patch.object(
+                    main, "GEMINI_API_KEY", "gemini-key"
+                ), patch.object(main, "GEMINI_API_KEY_BACKUP", ""), patch.object(
+                    main, "OPENROUTER_API_KEY", ""
+                ):
+                    with patch.object(
+                        main.httpx,
+                        "AsyncClient",
+                        side_effect=lambda **kwargs: original_client(
+                            transport=mock_transport, **kwargs
+                        ),
+                    ):
+                        result = asyncio.run(
+                            main.extract_once([(1, b"jpeg-bytes")], "test prompt")
+                        )
+
+            self.assertEqual(result, {"first_name": "Maya"})
+            self.assertEqual(len(requests), 2)
+            self.assertEqual(str(requests[0].url), main.ANTHROPIC_API_URL)
+            self.assertEqual(str(requests[1].url), main.GEMINI_API_URL)
+
+    def test_status_lists_anthropic_before_fallback_providers(self) -> None:
+        with patch.object(main, "ANTHROPIC_API_KEY", "anthropic-key"), patch.object(
+            main, "GEMINI_API_KEY", "gemini-key"
+        ), patch.object(main, "GEMINI_API_KEY_BACKUP", "backup-key"), patch.object(
+            main, "OPENROUTER_API_KEY", "openrouter-key"
+        ):
+            result = main.status()
+
+        self.assertTrue(result["configured"])
+        self.assertEqual(result["model"], main.ANTHROPIC_MODEL)
+        self.assertEqual(
+            result["provider"],
+            "Anthropic primary (claude-sonnet-5-5) + "
+            f"Gemini fallback ({main.GEMINI_MODEL}) + "
+            f"Gemini fallback ({main.GEMINI_MODEL}) + "
+            f"OpenRouter fallback ({main.OPENROUTER_MODEL})",
+        )
+
     def test_gemini_falls_back_to_openrouter_after_primary_quota_error(self) -> None:
         extracted = {
             "choices": [{
