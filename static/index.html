@@ -68,9 +68,13 @@
     .panel-head h2 { margin: 0; font-size: 15px; }
     .count { padding: 3px 8px; color: var(--muted); background: var(--canvas); border-radius: 20px; font-size: 12px; }
     .records { max-height: 630px; overflow: auto; }
-    .record-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; padding: 14px 18px; text-align: left; border: 0; border-bottom: 1px solid #edf1ef; background: white; color: var(--ink); }
+    .record-row { display: flex; align-items: center; gap: 8px; padding: 14px 18px; border-bottom: 1px solid #edf1ef; background: white; color: var(--ink); }
     .record-row:hover, .record-row.selected { background: #f1f8f6; }
     .record-row.selected { box-shadow: inset 3px 0 var(--teal); }
+    .record-select { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; padding: 0; text-align: left; border: 0; background: transparent; color: inherit; cursor: pointer; }
+    .record-delete { flex: none; padding: 7px 9px; color: #a33434; background: #fff0f0; border: 0; border-radius: 7px; font-size: 11px; font-weight: 650; cursor: pointer; }
+    .record-delete:hover { background: #f9dddd; }
+    .record-delete:disabled { opacity: .55; cursor: wait; }
     .record-thumb { width: 48px; height: 60px; flex: none; object-fit: cover; object-position: top center; background: #edf3f1; border: 1px solid var(--line); border-radius: 6px; }
     .record-thumb-placeholder { display: grid; place-items: center; color: var(--muted); font-size: 18px; }
     .row-main { min-width: 0; }
@@ -131,19 +135,19 @@
   <!-- DEMO_BANNER -->
   <header>
     <div class="brand"><img class="brand-mark" src="/static/decipher-mark.svg" alt=""><div>Decipher<small>Authorization review workspace</small></div></div>
-    <div class="model-status"><span class="dot" id="modelDot"></span><span id="modelStatus">Checking Gemini setup…</span></div>
+    <div class="model-status"><span class="dot" id="modelDot"></span><span id="modelStatus">Checking AI provider setup…</span></div>
     <form class="logout-form" action="/logout" method="post"><button class="logout-button" type="submit">Sign out</button></form>
   </header>
   <main>
     <section class="intro">
       <div><h1>Authorization records</h1><p>Extract patient and authorization details from forms, then review uncertain fields before approving records for the lab.</p></div>
-      <div class="local-note">Gemini-powered extraction · Originals are not retained by this app</div>
+      <div class="local-note">Gemini extraction with OpenRouter fallback · Originals are not retained by this app</div>
     </section>
     <section class="upload">
       <div class="upload-copy"><div class="upload-icon">↑</div><div><strong>Upload authorization forms</strong><span>PDF, PNG, JPEG, TIFF, BMP or WebP · Up to 20 MB and 12 pages per form</span></div></div>
       <div class="actions"><label class="group-option"><input id="groupPages" type="checkbox"> Group selected images as one form</label><input id="fileInput" type="file" multiple accept=".pdf,.png,.jpg,.jpeg,.tif,.tiff,.bmp,.webp"><button id="chooseButton" class="button secondary" type="button">Choose files</button><button id="uploadButton" class="button" type="button" disabled>Extract forms</button></div>
     </section>
-    <label class="consent"><input id="externalConsent" type="checkbox"><span>I am authorized to process these documents using Google Gemini. I understand the document images will be sent to Google's Gemini API, and its response will contain extracted medical and identity information, under the account and terms associated with the configured API key.</span></label>
+    <label class="consent"><input id="externalConsent" type="checkbox"><span>I am authorized to process these documents using Google Gemini and, if the primary provider is unavailable, OpenRouter. I understand the document images may be sent to Google or OpenRouter for processing and that responses may contain extracted medical and identity information, subject to the configured account terms.</span></label>
     <div id="uploadStatus" role="status"></div>
     <progress id="uploadProgress" class="progress-track" max="100" value="0" hidden></progress>
     <section class="workspace">
@@ -157,7 +161,7 @@
         <div class="detail-content" id="detailContent" hidden></div>
       </div>
     </section>
-    <div class="privacy"><strong>Privacy:</strong> document images are sent to Google Gemini for extraction. The API key stays on the server. Extracted records are saved in SQLite on the configured data disk. Confirm that your organization's privacy, consent, and regulatory requirements permit using Gemini for these medical documents.</div>
+    <div class="privacy"><strong>Privacy:</strong> document images may be sent to Google Gemini or, if the primary provider is unavailable, OpenRouter for extraction. API keys stay on the server. Extracted records are saved in SQLite on the configured data disk. Confirm that your organization's privacy, consent, and regulatory requirements permit using these providers for medical documents.</div>
   </main>
   <script>
     const records = [];
@@ -181,11 +185,11 @@
         modelReady = ready;
         $("#modelDot").classList.toggle("ready", ready);
         $("#modelStatus").textContent = ready
-          ? `Gemini configured · ${status.model}`
-          : "Gemini API key not configured";
+          ? `${status.provider} configured`
+          : "No extraction API key configured";
         $("#uploadButton").disabled = !ready || !$("#externalConsent").checked || !$("#fileInput").files.length;
       } catch {
-        $("#modelStatus").textContent = "Could not check Gemini configuration";
+        $("#modelStatus").textContent = "Could not check AI provider configuration";
         $("#uploadButton").disabled = true;
       }
     }
@@ -229,11 +233,21 @@
         const preview = thumbnail
           ? `<img class="record-thumb" src="${thumbnail}" alt="Preview of ${escapeHtml(record.source_filename)}">`
           : '<span class="record-thumb record-thumb-placeholder" aria-hidden="true">▤</span>';
-        return `<button class="record-row ${selectedId === record.id ? "selected" : ""}" data-id="${escapeHtml(record.id)}">
-          ${preview}<span class="row-main"><strong>${escapeHtml(name)}</strong><small>${escapeHtml(authorization)} · ${escapeHtml(record.source_filename)}</small></span>${status}</button>`;
+        return `<div class="record-row ${selectedId === record.id ? "selected" : ""}">
+          <button class="record-select" type="button" data-id="${escapeHtml(record.id)}" aria-label="Select ${escapeHtml(name)} — ${escapeHtml(authorization)}">
+            ${preview}<span class="row-main"><strong>${escapeHtml(name)}</strong><small>${escapeHtml(authorization)} · ${escapeHtml(record.source_filename)}</small></span>${status}
+          </button>
+          <button class="record-delete" type="button" data-id="${escapeHtml(record.id)}" aria-label="Delete ${escapeHtml(name)} — ${escapeHtml(authorization)}" title="Delete record">Delete</button>
+        </div>`;
       }).join("");
-      document.querySelectorAll(".record-row").forEach((button) => {
+      document.querySelectorAll(".record-select").forEach((button) => {
         button.addEventListener("click", () => selectRecord(button.dataset.id));
+      });
+      document.querySelectorAll(".record-delete").forEach((button) => {
+        button.addEventListener("click", () => {
+          const record = records.find((item) => item.id === button.dataset.id);
+          if (record) deleteRecord(record, button);
+        });
       });
     }
 
@@ -303,7 +317,7 @@
         body.approved = true;
         await saveRecord(record, body);
       });
-      $("#deleteButton").addEventListener("click", () => deleteRecord(record));
+      $("#deleteButton").addEventListener("click", (event) => deleteRecord(record, event.currentTarget));
     }
 
     function selectRecord(id) {
@@ -329,9 +343,8 @@
       }
     }
 
-    async function deleteRecord(record) {
+    async function deleteRecord(record, button) {
       if (!window.confirm(`Delete the record for ${record.source_filename}? This cannot be undone.`)) return;
-      const button = $("#deleteButton");
       button.disabled = true;
       try {
         const response = await fetch(`/api/records/${encodeURIComponent(record.id)}`, { method: "DELETE" });
@@ -343,11 +356,12 @@
         if (index !== -1) records.splice(index, 1);
         previews.delete(record.id);
         thumbnails.delete(record.id);
-        selectedId = null;
+        const wasSelected = selectedId === record.id;
+        if (wasSelected) selectedId = null;
         renderList();
-        if (records.length) {
+        if (wasSelected && records.length) {
           selectRecord(records[0].id);
-        } else {
+        } else if (wasSelected) {
           $("#detailContent").hidden = true;
           $("#detailEmpty").hidden = false;
           $("#recordState").textContent = "Select a record";

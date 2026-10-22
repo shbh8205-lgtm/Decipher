@@ -7,7 +7,7 @@ authorization becomes a record; shared patient fields are repeated on each recor
 
 ## Configure and run locally
 
-1. Install Python 3.11 or newer.
+1. Install Python 3.12.8 (the version in `.python-version`).
 2. Create a Gemini API key in Google AI Studio and confirm that your organization's privacy,
    consent, and regulatory requirements permit sending these medical documents to Google's API.
    NetFree filtering must allow the app's server to reach `generativelanguage.googleapis.com`.
@@ -40,6 +40,37 @@ authorization becomes a record; shared patient fields are repeated on each recor
 
 6. Open <http://127.0.0.1:8000>.
 
+## Pre-deploy check
+
+Run these commands from the repository root with Python 3.12.8 installed. Confirm the version
+printed by `python --version` matches `.python-version`.
+
+Windows PowerShell:
+
+```powershell
+py -3.12 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python --version
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+python scripts/check_imports.py
+python -m unittest discover -s tests
+deactivate
+```
+
+Linux/macOS:
+
+```sh
+python3.12 -m venv .venv
+source .venv/bin/activate
+python --version
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+python scripts/check_imports.py
+python -m unittest discover -s tests
+deactivate
+```
+
 ## Processing and review
 
 - Supported inputs: PDF, PNG, JPEG, TIFF, BMP, and WebP; maximum 20 MB and 12 pages per form.
@@ -71,11 +102,11 @@ authorization becomes a record; shared patient fields are repeated on each recor
 - If extraction reports HTTP 404, confirm `GEMINI_MODEL` is an available model ID and that NetFree
   allows the server to access `generativelanguage.googleapis.com` without replacing/blocking the
   Gemini API response. The application shows Gemini's returned error message when available.
-- Document images are transmitted to the Google Gemini API using the server-side API key. Do not
-  upload real patient forms unless authorized, and verify applicable Google API terms, data
-  handling/retention settings, and any required organizational agreements before use. API keys
-  are credentials: keep them secret, restrict their permissions/quotas in Google AI Studio, and
-  rotate exposed keys.
+- Document images are transmitted to Google Gemini using the server-side API key, and may also be
+  sent to OpenRouter if it is configured and Gemini is unavailable. Do not upload real patient
+  forms unless authorized, and verify applicable provider terms, data handling/retention settings,
+  and any required organizational agreements before use. API keys are credentials: keep them
+  secret, restrict their permissions/quotas in each provider dashboard, and rotate exposed keys.
 - Uploaded originals are processed in memory by the application and are not stored on the server.
   A small first-page thumbnail is saved with each record in the local database so the list and
   record preview still work after reload. Original full-resolution documents are not retained;
@@ -148,12 +179,26 @@ Set these environment variables in Render:
 | Variable | Required | Purpose |
 |---|---|---|
 | `GEMINI_API_KEY` | Yes | Server-side Gemini credential |
+| `GEMINI_API_KEY_BACKUP` | No | Optional second Gemini key, tried if the primary Gemini key fails |
+| `OPENROUTER_API_KEY` | No | Optional final fallback credential for OpenRouter |
+| `OPENROUTER_MODEL` | No | Vision-capable OpenRouter model that supports JSON Schema output; defaults to `openai/gpt-4o-mini` |
 | `GEMINI_MODEL` | Yes | Model ID, e.g. `gemini-3.8-flash` |
 | `SESSION_SECRET` | Yes | Long random signing key for login sessions; Render can generate it |
 | `APP_USERS` | Yes, or use `APP_PASSWORD_HASH` | Comma-separated `username:bcrypt_hash` accounts; no self-registration |
 | `DATA_DIR` | Yes | Persistent disk path, `/var/data` in the Blueprint |
 | `DEMO_BANNER` | No | Set `true` to show “Demo environment - sample data only” |
 | `DEMO_SEED` | No | Set `1` to populate an empty database with synthetic demo rows |
+
+Set `GEMINI_API_KEY_BACKUP` and `OPENROUTER_API_KEY` in Render's environment settings to
+configure the fallback chain. The app tries the primary Gemini key, then the backup Gemini key,
+then OpenRouter after authentication errors (HTTP 401/403), rate limits (HTTP 429), unavailable
+service after retries (HTTP 503), or connection failures. Model/configuration errors such as HTTP
+404 do not trigger fallback. Choose a vision-capable OpenRouter model that supports structured
+JSON Schema output. Keep all keys private.
+
+If fallback is enabled, uploaded document images may be sent to OpenRouter as well as Google
+Gemini. Confirm that your organization's privacy, consent, and regulatory requirements permit
+both providers before enabling it.
 
 Generate an account password hash locally (never place a plaintext password in the deployment
 configuration):

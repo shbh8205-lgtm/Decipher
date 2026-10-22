@@ -35,8 +35,12 @@ STATIC_DIR = ROOT / "static"
 DATA_DIR = Path(os.getenv("DATA_DIR", str(ROOT / "data"))).resolve()
 DATABASE_PATH = DATA_DIR / "decipher.sqlite3"
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+GEMINI_API_KEY_BACKUP = os.getenv("GEMINI_API_KEY_BACKUP", "")
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
+OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "openai/gpt-4o-mini")
 GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/interactions"
+OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
 SESSION_SECRET = os.getenv("SESSION_SECRET") or secrets.token_urlsafe(32)
 DEMO_BANNER = os.getenv("DEMO_BANNER", "").strip().casefold() in {"1", "true", "yes", "on"}
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024
@@ -587,60 +591,124 @@ def normalize_document(filename: str, content: bytes) -> list[tuple[int, bytes]]
 
 
 async def extract_once(pages: list[tuple[int, bytes]], prompt: str) -> dict[str, Any]:
-    payload = {
-        "model": GEMINI_MODEL,
-        "input": [
-            {"type": "text", "text": prompt},
-            *[
-                {
-                    "type": "image",
-                    "data": base64.b64encode(content).decode("ascii"),
-                    "mime_type": "image/jpeg",
-                }
-                for _, content in pages
-            ],
-        ],
-        "response_format": {
-            "type": "text",
-            "mime_type": "application/json",
-            "schema": gemini_response_schema(EXTRACTION_SCHEMA),
-        },
-        "store": False,
-    }
-    if not GEMINI_API_KEY:
+    providers = []
+    if GEMINI_API_KEY.strip():
+        providers.append(("Gemini", GEMINI_API_URL, GEMINI_API_KEY.strip(), GEMINI_MODEL))
+    if GEMINI_API_KEY_BACKUP.strip() and GEMINI_API_KEY_BACKUP.strip() != GEMINI_API_KEY.strip():
+        providers.append(("Gemini", GEMINI_API_URL, GEMINI_API_KEY_BACKUP.strip(), GEMINI_MODEL))
+    if OPENROUTER_API_KEY.strip():
+        providers.append(("OpenRouter", OPENROUTER_API_URL, OPENROUTER_API_KEY.strip(), OPENROUTER_MODEL))
+    if not providers:
         raise HTTPException(
             status_code=503,
-            detail="Gemini API key is not configured. Set GEMINI_API_KEY in the server environment.",
+            detail="No model API key is configured. Set GEMINI_API_KEY, GEMINI_API_KEY_BACKUP, or OPENROUTER_API_KEY in the server environment.",
         )
+    provider_name = ""
+    model_name = ""
+    response: httpx.Response
     try:
         async with httpx.AsyncClient(timeout=180) as client:
-            for attempt in range(GEMINI_MAX_ATTEMPTS):
-                try:
-                    response = await client.post(
-                        GEMINI_API_URL,
-                        headers={"x-goog-api-key": GEMINI_API_KEY},
-                        json=payload,
-                        follow_redirects=False,
-                    )
-                    response.raise_for_status()
+            for provider_index, (provider_name, api_url, api_key, model_name) in enumerate(providers):
+                request_headers = (
+                    {"x-goog-api-key": api_key}
+                    if provider_name == "Gemini"
+                    else {"Authorization": f"Bearer {api_key}"}
+                )
+                if provider_name == "Gemini":
+                    payload = {
+                        "model": model_name,
+                        "input": [
+                            {"type": "text", "text": prompt},
+                            *[
+                                {
+                                    "type": "image",
+                                    "data": base64.b64encode(content).decode("ascii"),
+                                    "mime_type": "image/jpeg",
+                                }
+                                for _, content in pages
+                            ],
+                        ],
+                        "response_format": {
+                            "type": "text",
+                            "mime_type": "application/json",
+                            "schema": gemini_response_schema(EXTRACTION_SCHEMA),
+                        },
+                        "store": False,
+                    }
+                else:
+                    payload = {
+                        "model": model_name,
+                        "messages": [{
+                            "role": "user",
+                            "content": [
+                                {"type": "text", "text": prompt},
+                                *[
+                                    {
+                                        "type": "image_url",
+                                        "image_url": {
+                                            "url": (
+                                                "data:image/jpeg;base64,"
+                                                f"{base64.b64encode(content).decode('ascii')}"
+                                            )
+                                        },
+                                    }
+                                    for _, content in pages
+                                ],
+                            ],
+                        }],
+                        "response_format": {
+                            "type": "json_schema",
+                            "json_schema": {
+                                "name": "authorization_extraction",
+                                "strict": True,
+                                "schema": EXTRACTION_SCHEMA,
+                            },
+                        },
+                    }
+                use_backup = False
+                for attempt in range(GEMINI_MAX_ATTEMPTS):
+                    try:
+                        response = await client.post(
+                            api_url,
+                            headers=request_headers,
+                            json=payload,
+                            follow_redirects=False,
+                        )
+                        response.raise_for_status()
+                    except httpx.HTTPStatusError as error:
+                        if error.response.status_code == 503 and attempt + 1 < GEMINI_MAX_ATTEMPTS:
+                            await asyncio.sleep(attempt + 1)
+                            continue
+                        if (
+                            error.response.status_code in {401, 403, 429, 503}
+                            and provider_index + 1 < len(providers)
+                        ):
+                            use_backup = True
+                            break
+                        raise
+                    except httpx.RequestError:
+                        if provider_index + 1 < len(providers):
+                            use_backup = True
+                            break
+                        raise
+                    else:
+                        break
+                if not use_backup:
                     break
-                except httpx.HTTPStatusError as error:
-                    if error.response.status_code == 503 and attempt + 1 < GEMINI_MAX_ATTEMPTS:
-                        await asyncio.sleep(attempt + 1)
-                        continue
-                    raise
     except httpx.HTTPStatusError as error:
-        if error.response.status_code in {401, 403}:
+        if provider_name == "OpenRouter" and error.response.status_code in {401, 403}:
+            detail = "OpenRouter rejected the API key or access to the selected model."
+        elif provider_name == "Gemini" and error.response.status_code in {401, 403}:
             detail = "Gemini rejected the API key or access to the selected model."
         elif error.response.status_code == 429:
-            detail = "Gemini rate limit or quota reached. Try again later or check your API project quota."
+            detail = f"{provider_name} rate limit or quota reached. Try again later or check your account quota."
         elif error.response.status_code == 503:
             detail = (
-                f"Gemini remained unavailable (HTTP 503) after {GEMINI_MAX_ATTEMPTS} attempts. "
-                "Wait a few minutes and try again; if it continues, check Google's service status "
-                "and whether NetFree is interrupting the connection."
+                f"{provider_name} remained unavailable (HTTP 503) after {GEMINI_MAX_ATTEMPTS} attempts. "
+                "Wait a few minutes and try again; if it continues, check the provider's service status "
+                "or whether network filtering is interrupting the connection."
             )
-        elif error.response.status_code == 404:
+        elif provider_name == "Gemini" and error.response.status_code == 404:
             api_message = ""
             try:
                 api_message = str(error.response.json().get("error", {}).get("message", ""))
@@ -653,36 +721,48 @@ async def extract_once(pages: list[tuple[int, bytes]], prompt: str) -> dict[str,
             )
             if api_message:
                 detail = f"{detail} Gemini message: {api_message[:300]}"
+        elif provider_name == "OpenRouter" and error.response.status_code == 404:
+            detail = f"OpenRouter returned 404 for model '{model_name}'. Check OPENROUTER_MODEL."
         else:
-            detail = f"Gemini API returned HTTP {error.response.status_code}."
+            detail = f"{provider_name} API returned HTTP {error.response.status_code}."
         raise HTTPException(status_code=502, detail=detail) from error
     except httpx.RequestError as error:
         raise HTTPException(
             status_code=503,
-            detail="Could not connect to the Gemini API. Check internet access and NetFree filtering.",
+            detail=f"Could not connect to {provider_name}. Check internet access and network filtering.",
         ) from error
 
     try:
         result = response.json()
-        if result.get("status") not in {None, "completed"}:
-            raise HTTPException(
-                status_code=502,
-                detail=f"Gemini interaction did not complete (status: {result['status']}).",
+        if provider_name == "Gemini":
+            if result.get("status") not in {None, "completed"}:
+                raise HTTPException(
+                    status_code=502,
+                    detail=f"Gemini interaction did not complete (status: {result['status']}).",
+                )
+            content = "".join(
+                item["text"]
+                for step in result["steps"]
+                if step.get("type") == "model_output"
+                for item in step.get("content", [])
+                if item.get("type") == "text" and "text" in item
             )
-        content = "".join(
-            item["text"]
-            for step in result["steps"]
-            if step.get("type") == "model_output"
-            for item in step.get("content", [])
-            if item.get("type") == "text" and "text" in item
-        )
+        else:
+            message = result["choices"][0]["message"]
+            if message.get("refusal"):
+                raise HTTPException(status_code=502, detail="OpenRouter model refused the extraction request.")
+            content = message["content"]
+            if isinstance(content, list):
+                content = "".join(
+                    item.get("text", "") for item in content if item.get("type") == "text"
+                )
         if not content:
-            raise HTTPException(status_code=502, detail="Gemini returned no text in its completed interaction.")
+            raise HTTPException(status_code=502, detail=f"{provider_name} returned no text.")
         extracted = json.loads(content)
     except HTTPException:
         raise
     except (ValueError, KeyError, TypeError) as error:
-        raise HTTPException(status_code=502, detail="Gemini returned invalid structured data.") from error
+        raise HTTPException(status_code=502, detail=f"{provider_name} returned invalid structured data.") from error
     return extracted
 
 
@@ -960,10 +1040,19 @@ def logout(request: Request) -> Response:
 
 @app.get("/api/status")
 def status() -> dict[str, Any]:
+    providers = []
+    if GEMINI_API_KEY:
+        providers.append(f"Gemini ({GEMINI_MODEL})")
+    if GEMINI_API_KEY_BACKUP and GEMINI_API_KEY_BACKUP != GEMINI_API_KEY:
+        role = "fallback" if GEMINI_API_KEY else "primary"
+        providers.append(f"Gemini {role} ({GEMINI_MODEL})")
+    if OPENROUTER_API_KEY:
+        role = "fallback" if GEMINI_API_KEY or GEMINI_API_KEY_BACKUP else "primary"
+        providers.append(f"OpenRouter {role} ({OPENROUTER_MODEL})")
     return {
-        "provider": "Gemini",
-        "model": GEMINI_MODEL,
-        "configured": bool(GEMINI_API_KEY),
+        "provider": " + ".join(providers),
+        "model": GEMINI_MODEL if GEMINI_API_KEY or GEMINI_API_KEY_BACKUP else OPENROUTER_MODEL,
+        "configured": bool(GEMINI_API_KEY or GEMINI_API_KEY_BACKUP or OPENROUTER_API_KEY),
     }
 
 
@@ -1007,7 +1096,7 @@ async def upload_documents(
     if not external_processing_consent:
         raise HTTPException(
             status_code=400,
-            detail="Confirm that you are authorized to send these documents to Google Gemini before processing.",
+            detail="Confirm that you are authorized to send these documents to the configured AI providers before processing.",
         )
     if group_images:
         filenames = [Path(upload.filename or "upload").name for upload in files]

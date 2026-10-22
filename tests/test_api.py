@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import csv
 import json
 import os
@@ -199,6 +200,109 @@ class ExtractionApiTests(unittest.TestCase):
         self.assertEqual(body["input"][1]["mime_type"], "image/jpeg")
         self.assertEqual(body["response_format"]["mime_type"], "application/json")
         self.assertFalse(body["store"])
+
+    def test_gemini_falls_back_to_openrouter_after_primary_quota_error(self) -> None:
+        extracted = {
+            "choices": [{
+                "message": {"content": json.dumps({"first_name": "Maya"})},
+            }],
+        }
+        requests = []
+
+        async def handler(request: httpx.Request) -> httpx.Response:
+            requests.append(request)
+            if request.url.host == "generativelanguage.googleapis.com":
+                return httpx.Response(429)
+            return httpx.Response(200, json=extracted)
+
+        original_client = httpx.AsyncClient
+        mock_transport = httpx.MockTransport(handler)
+        with patch.object(main, "GEMINI_API_KEY", "primary-key"), patch.object(
+            main, "GEMINI_API_KEY_BACKUP", ""
+        ), patch.object(
+            main, "OPENROUTER_API_KEY", "openrouter-key"
+        ):
+            with patch.object(main, "OPENROUTER_MODEL", "openai/gpt-4o-mini"):
+                with patch.object(
+                    main.httpx,
+                    "AsyncClient",
+                    side_effect=lambda **kwargs: original_client(transport=mock_transport, **kwargs),
+                ):
+                    result = asyncio.run(main.extract_once([(1, b"jpeg-bytes")], "test prompt"))
+
+        self.assertEqual(result, {"first_name": "Maya"})
+        self.assertEqual(len(requests), 2)
+        self.assertEqual(requests[0].headers["x-goog-api-key"], "primary-key")
+        self.assertEqual(str(requests[1].url), main.OPENROUTER_API_URL)
+        self.assertEqual(requests[1].headers["Authorization"], "Bearer openrouter-key")
+        body = json.loads(requests[1].content)
+        self.assertEqual(body["model"], "openai/gpt-4o-mini")
+        self.assertEqual(body["response_format"]["type"], "json_schema")
+        self.assertEqual(body["response_format"]["json_schema"]["schema"], main.EXTRACTION_SCHEMA)
+        self.assertEqual(body["messages"][0]["content"][0], {"type": "text", "text": "test prompt"})
+        self.assertEqual(
+            body["messages"][0]["content"][1]["image_url"]["url"],
+            "data:image/jpeg;base64," + base64.b64encode(b"jpeg-bytes").decode("ascii"),
+        )
+
+    def test_gemini_backup_is_tried_before_openrouter(self) -> None:
+        extracted = {
+            "choices": [{
+                "message": {"content": json.dumps({"first_name": "Maya"})},
+            }],
+        }
+        requests = []
+
+        async def handler(request: httpx.Request) -> httpx.Response:
+            requests.append(request)
+            if request.url.host == "generativelanguage.googleapis.com":
+                return httpx.Response(429)
+            return httpx.Response(200, json=extracted)
+
+        original_client = httpx.AsyncClient
+        mock_transport = httpx.MockTransport(handler)
+        with patch.object(main, "GEMINI_API_KEY", "primary-key"), patch.object(
+            main, "GEMINI_API_KEY_BACKUP", "backup-key"
+        ), patch.object(
+            main, "OPENROUTER_API_KEY", "openrouter-key"
+        ):
+            with patch.object(
+                main.httpx,
+                "AsyncClient",
+                side_effect=lambda **kwargs: original_client(transport=mock_transport, **kwargs),
+            ):
+                result = asyncio.run(main.extract_once([(1, b"jpeg-bytes")], "test prompt"))
+
+        self.assertEqual(result, {"first_name": "Maya"})
+        self.assertEqual(len(requests), 3)
+        self.assertEqual(requests[0].headers["x-goog-api-key"], "primary-key")
+        self.assertEqual(requests[1].headers["x-goog-api-key"], "backup-key")
+        self.assertEqual(str(requests[2].url), main.OPENROUTER_API_URL)
+
+    def test_gemini_does_not_fall_back_for_model_not_found(self) -> None:
+        requests = []
+
+        async def handler(request: httpx.Request) -> httpx.Response:
+            requests.append(request)
+            return httpx.Response(404, json={"error": {"message": "model not found"}})
+
+        original_client = httpx.AsyncClient
+        mock_transport = httpx.MockTransport(handler)
+        with patch.object(main, "GEMINI_API_KEY", "primary-key"), patch.object(
+            main, "GEMINI_API_KEY_BACKUP", "backup-key"
+        ), patch.object(
+            main, "OPENROUTER_API_KEY", "openrouter-key"
+        ):
+            with patch.object(
+                main.httpx,
+                "AsyncClient",
+                side_effect=lambda **kwargs: original_client(transport=mock_transport, **kwargs),
+            ):
+                with self.assertRaises(main.HTTPException):
+                    asyncio.run(main.extract_once([(1, b"jpeg-bytes")], "test prompt"))
+
+        self.assertEqual(len(requests), 1)
+        self.assertEqual(requests[0].headers["x-goog-api-key"], "primary-key")
 
     def test_gemini_schema_maps_nullable_types(self) -> None:
         schema = main.gemini_response_schema(main.EXTRACTION_SCHEMA)

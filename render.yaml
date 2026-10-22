@@ -10,8 +10,16 @@ services:
       mountPath: /var/data
       sizeGB: 1
     envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.8
       - key: GEMINI_API_KEY
         sync: false
+      - key: GEMINI_API_KEY_BACKUP
+        sync: false
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: OPENROUTER_MODEL
+        value: openai/gpt-4o-mini
       - key: GEMINI_MODEL
         value: gemini-3.8-flash
       - key: SESSION_SECRET
