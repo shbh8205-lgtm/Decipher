@@ -1,8 +1,10 @@
-import base64
 import asyncio
+import base64
+import copy
 import csv
 import json
 import logging
+import math
 import os
 import re
 import secrets
@@ -195,6 +197,68 @@ def gemini_response_schema(schema: dict[str, Any]) -> dict[str, Any]:
     if "maximum" in schema:
         result["maximum"] = schema["maximum"]
     return result
+
+
+def anthropic_response_schema(schema: dict[str, Any]) -> dict[str, Any]:
+    """Remove JSON Schema constraints unsupported by Anthropic structured outputs."""
+    result = copy.deepcopy(schema)
+    unsupported_keywords = {
+        "minimum",
+        "maximum",
+        "exclusiveMinimum",
+        "exclusiveMaximum",
+        "multipleOf",
+        "minLength",
+        "maxLength",
+        "pattern",
+    }
+
+    def clean(value: Any) -> None:
+        if isinstance(value, dict):
+            has_minimum = "minimum" in value
+            has_maximum = "maximum" in value
+            minimum = value.pop("minimum", None)
+            maximum = value.pop("maximum", None)
+            if has_minimum and has_maximum:
+                constraint = f"Number between {minimum} and {maximum}"
+            elif has_minimum:
+                constraint = f"Number at least {minimum}"
+            elif has_maximum:
+                constraint = f"Number at most {maximum}"
+            else:
+                constraint = ""
+            if constraint:
+                description = value.get("description", "")
+                value["description"] = (
+                    f"{description.rstrip()} {constraint}".strip()
+                    if isinstance(description, str) and description
+                    else constraint
+                )
+
+            for keyword in unsupported_keywords:
+                value.pop(keyword, None)
+            for child in value.values():
+                clean(child)
+
+            schema_type = value.get("type")
+            if (
+                schema_type == "object"
+                or isinstance(schema_type, list) and "object" in schema_type
+                or "properties" in value
+            ):
+                properties = value.get("properties", {})
+                if isinstance(properties, dict):
+                    required = value.get("required", [])
+                    required_properties = required if isinstance(required, list) else []
+                    value["required"] = list(dict.fromkeys([*required_properties, *properties]))
+                value["additionalProperties"] = False
+        elif isinstance(value, list):
+            for item in value:
+                clean(item)
+
+    clean(result)
+    return result
+
 
 app = FastAPI(title="Decipher", version="0.1.0", docs_url=None, redoc_url=None, openapi_url=None)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
@@ -671,7 +735,7 @@ async def extract_once(pages: list[tuple[int, bytes]], prompt: str) -> dict[str,
                         "output_config": {
                             "format": {
                                 "type": "json_schema",
-                                "schema": EXTRACTION_SCHEMA,
+                                "schema": anthropic_response_schema(EXTRACTION_SCHEMA),
                             },
                         },
                     }
@@ -839,6 +903,27 @@ async def extract_once(pages: list[tuple[int, bytes]], prompt: str) -> dict[str,
         if not content:
             raise HTTPException(status_code=502, detail=f"{provider_name} returned no text.")
         extracted = json.loads(content)
+        if isinstance(extracted, dict):
+            def clamp_confidence(value: Any) -> int | float:
+                if (
+                    not isinstance(value, (int, float))
+                    or isinstance(value, bool)
+                    or isinstance(value, float) and math.isnan(value)
+                ):
+                    return 0
+                return min(1, max(0, value))
+
+            field_confidence = extracted.get("field_confidence")
+            if isinstance(field_confidence, dict):
+                for field, value in field_confidence.items():
+                    field_confidence[field] = clamp_confidence(value)
+            authorizations = extracted.get("authorizations")
+            if isinstance(authorizations, list):
+                for authorization in authorizations:
+                    if isinstance(authorization, dict):
+                        authorization["confidence"] = clamp_confidence(
+                            authorization.get("confidence")
+                        )
     except HTTPException:
         raise
     except (ValueError, KeyError, TypeError) as error:

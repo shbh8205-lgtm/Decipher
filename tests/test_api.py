@@ -1,5 +1,6 @@
 import asyncio
 import base64
+import copy
 import csv
 import json
 import os
@@ -200,6 +201,19 @@ class ExtractionApiTests(unittest.TestCase):
         self.assertEqual(body["input"][1]["mime_type"], "image/jpeg")
         self.assertEqual(body["response_format"]["mime_type"], "application/json")
         self.assertFalse(body["store"])
+        gemini_schema = body["response_format"]["schema"]
+        self.assertEqual(
+            gemini_schema["properties"]["field_confidence"]["properties"]["first_name"][
+                "minimum"
+            ],
+            0,
+        )
+        self.assertEqual(
+            gemini_schema["properties"]["field_confidence"]["properties"]["first_name"][
+                "maximum"
+            ],
+            1,
+        )
 
     def test_anthropic_request_sends_key_image_and_json_schema(self) -> None:
         extracted = {
@@ -213,6 +227,7 @@ class ExtractionApiTests(unittest.TestCase):
 
         original_client = httpx.AsyncClient
         mock_transport = httpx.MockTransport(handler)
+        original_schema = copy.deepcopy(main.EXTRACTION_SCHEMA)
         with patch.object(main, "ANTHROPIC_API_KEY", "anthropic-key"), patch.object(
             main, "ANTHROPIC_MODEL", "claude-test-model"
         ), patch.object(main, "GEMINI_API_KEY", ""), patch.object(
@@ -247,9 +262,105 @@ class ExtractionApiTests(unittest.TestCase):
             },
         )
         self.assertEqual(
-            body["output_config"]["format"],
-            {"type": "json_schema", "schema": main.EXTRACTION_SCHEMA},
+            body["output_config"]["format"]["type"],
+            "json_schema",
         )
+        anthropic_schema = body["output_config"]["format"]["schema"]
+        self.assertNotIn("minimum", json.dumps(body))
+        self.assertNotIn("maximum", json.dumps(body))
+        self.assertEqual(
+            anthropic_schema["properties"]["field_confidence"]["properties"]["first_name"][
+                "description"
+            ],
+            "Number between 0 and 1",
+        )
+        self.assertEqual(
+            anthropic_schema["properties"]["authorizations"]["items"]["properties"][
+                "confidence"
+            ]["description"],
+            "Number between 0 and 1",
+        )
+
+        def assert_closed_objects(value: object) -> None:
+            if isinstance(value, dict):
+                if value.get("type") == "object":
+                    properties = value.get("properties", {})
+                    self.assertFalse(value.get("additionalProperties", True))
+                    self.assertTrue(set(properties).issubset(set(value.get("required", []))))
+                for child in value.values():
+                    assert_closed_objects(child)
+            elif isinstance(value, list):
+                for child in value:
+                    assert_closed_objects(child)
+
+        assert_closed_objects(anthropic_schema)
+        self.assertEqual(main.EXTRACTION_SCHEMA, original_schema)
+
+    def test_confidences_are_clamped_for_all_providers(self) -> None:
+        extracted = {
+            "authorizations": [
+                {"confidence": 1.7},
+                {"confidence": -0.2},
+                {"confidence": "high"},
+            ],
+            "field_confidence": {
+                "first_name": 1.7,
+                "last_name": -0.2,
+                "id_number": "high",
+            },
+        }
+        provider_responses = {
+            "Anthropic": {
+                "content": [{"type": "text", "text": json.dumps(extracted)}],
+            },
+            "Gemini": {
+                "status": "completed",
+                "steps": [{
+                    "type": "model_output",
+                    "content": [{"type": "text", "text": json.dumps(extracted)}],
+                }],
+            },
+            "OpenRouter": {
+                "choices": [{"message": {"content": json.dumps(extracted)}}],
+            },
+        }
+        original_client = httpx.AsyncClient
+
+        for provider_name, provider_response in provider_responses.items():
+            requests = []
+
+            async def handler(request: httpx.Request) -> httpx.Response:
+                requests.append(request)
+                return httpx.Response(200, json=provider_response)
+
+            mock_transport = httpx.MockTransport(handler)
+            provider_keys = {
+                "ANTHROPIC_API_KEY": "anthropic-key" if provider_name == "Anthropic" else "",
+                "GEMINI_API_KEY": "gemini-key" if provider_name == "Gemini" else "",
+                "GEMINI_API_KEY_BACKUP": "",
+                "OPENROUTER_API_KEY": "openrouter-key" if provider_name == "OpenRouter" else "",
+            }
+            with self.subTest(provider=provider_name), patch.multiple(main, **provider_keys):
+                with patch.object(
+                    main.httpx,
+                    "AsyncClient",
+                    side_effect=lambda **kwargs: original_client(
+                        transport=mock_transport, **kwargs
+                    ),
+                ):
+                    result = asyncio.run(
+                        main.extract_once([(1, b"jpeg-bytes")], "test prompt")
+                    )
+
+            self.assertEqual(len(requests), 1)
+            self.assertEqual(
+                result["field_confidence"],
+                {"first_name": 1, "last_name": 0, "id_number": 0},
+            )
+            self.assertEqual(
+                [item["confidence"] for item in result["authorizations"]],
+                [1, 0, 0],
+            )
 
     def test_anthropic_falls_back_to_gemini_after_overload_retries(self) -> None:
         extracted = {
@@ -335,6 +446,9 @@ class ExtractionApiTests(unittest.TestCase):
                 any("Anthropic API returned HTTP" in entry for entry in logs.output)
             )
             self.assertTrue(any("invalid request" in entry for entry in logs.output))
+            self.assertFalse(any("anthropic-key" in entry for entry in logs.output))
+            self.assertFalse(any("jpeg-bytes" in entry for entry in logs.output))
+            self.assertFalse(any(base64.b64encode(b"jpeg-bytes").decode("ascii") in entry for entry in logs.output))
             self.assertEqual(len(requests), 2)
             self.assertEqual(str(requests[0].url), main.ANTHROPIC_API_URL)
             self.assertEqual(str(requests[1].url), main.GEMINI_API_URL)
@@ -465,6 +579,52 @@ class ExtractionApiTests(unittest.TestCase):
         self.assertEqual(schema["properties"]["id_number"]["type"], "STRING")
         self.assertTrue(schema["properties"]["id_number"]["nullable"])
         self.assertEqual(schema["properties"]["authorizations"]["type"], "ARRAY")
+
+    def test_anthropic_schema_removes_all_unsupported_constraints_without_mutating(self) -> None:
+        schema = {
+            "type": "object",
+            "properties": {
+                "bounded": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1,
+                    "description": "Confidence",
+                },
+                "other": {
+                    "type": "string",
+                    "exclusiveMinimum": 0,
+                    "exclusiveMaximum": 2,
+                    "multipleOf": 1,
+                    "minLength": 1,
+                    "maxLength": 10,
+                    "pattern": ".*",
+                },
+            },
+            "required": ["bounded"],
+        }
+        original_schema = copy.deepcopy(schema)
+
+        result = main.anthropic_response_schema(schema)
+
+        self.assertEqual(schema, original_schema)
+        self.assertEqual(
+            result["properties"]["bounded"]["description"],
+            "Confidence Number between 0 and 1",
+        )
+        self.assertEqual(result["required"], ["bounded", "other"])
+        self.assertFalse(result["additionalProperties"])
+        serialized = json.dumps(result)
+        for keyword in (
+            "minimum",
+            "maximum",
+            "exclusiveMinimum",
+            "exclusiveMaximum",
+            "multipleOf",
+            "minLength",
+            "maxLength",
+            "pattern",
+        ):
+            self.assertNotIn(keyword, serialized)
 
     def test_gemini_404_identifies_model_and_network_filter_possibility(self) -> None:
         async def handler(request: httpx.Request) -> httpx.Response:
