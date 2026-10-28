@@ -1346,6 +1346,7 @@
         }
         renderList();
         if (records.length) selectRecord(records[0].id);
+        if (recordsAdded) $("#recordsList").scrollTop = 0;
         const message = t("uploadSummary", {
           completed,
           successful: successfulForms,
