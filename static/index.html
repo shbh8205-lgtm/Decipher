@@ -854,6 +854,9 @@
         groupedPdf: "Grouped mode accepts image pages; PDFs are analyzed one page at a time automatically.",
         extractingGrouped: "Extracting one form from {filename} and {count} additional page(s)…",
         extractingPdf: "Extracting each PDF page separately: {filename}",
+        extractingPdfPage: "Extracting each PDF page separately: {filename} — page {current} of {total}",
+        progressUnavailable: "Page progress is unavailable; extraction is continuing.",
+        unexpectedServerResponse: "The server returned a non-JSON response (HTTP {status}). This can indicate an upload-size limit or a server error. Check the deployment logs and upload limits.",
         extractingUpload: "Extracting upload {current} of {total}: {filename}",
         extractionFailed: "Extraction failed.",
         uploadSummary: "{completed} upload batch(es) attempted; {successful} succeeded and {records} record(s) added. PDF pages are extracted separately.",
@@ -862,14 +865,14 @@
         title: "Decipher | Authorization review",
       },
       he: {
-        brandSubtitle: "סביבת בדיקה ואישור הרשאות",
+        brandSubtitle: "סביבת בדיקה ופיענוח התחייבויות",
         checkingProvider: "בודק את הגדרות ספקי הבינה המלאכותית…",
         switchLanguage: "החלפת שפה לאנגלית",
         signOut: "התנתקות",
-        pageTitle: "רשומות התחייבויות",
-        pageIntro: "חלצו פרטי מטופל והרשאה מטפסים, בדקו שדות לא ודאיים ואשרו רשומות למעבדה.",
+        pageTitle: "קלט וניהול טפסי התחייבויות",
+        pageIntro: "חלצו פרטי מטופל והתחייבות מטפסים, בדקו שדות לא ודאיים ואשרו רשומות למעבדה.",
         localNote: "חילוץ בעזרת בינה מלאכותית עם ספק גיבוי · הקבצים המקוריים אינם נשמרים באפליקציה",
-        uploadTitle: "העלאת טופסי הרשאה",
+        uploadTitle: "העלאת טופסי התחייבות",
         uploadHint: "PDF, PNG, JPEG, TIFF, BMP או WebP · עד 20 MB ו־12 עמודים לטופס",
         groupImages: "איחוד התמונות שנבחרו לטופס אחד",
         chooseFiles: "בחירת קבצים",
@@ -890,7 +893,7 @@
         providerCheckFailed: "לא ניתן לבדוק את הגדרות ספקי הבינה המלאכותית",
         noRecordsExport: "אין עדיין רשומות לייצוא.",
         noName: "השם לא זוהה",
-        noAuthorization: "לא זוהה מספר הרשאה",
+        noAuthorization: "לא זוהה מספר התחייבות",
         approved: "אושר",
         review: "לבדיקה",
         selectRecordFor: "בחירת {name} — {authorization}",
@@ -925,7 +928,7 @@
         saveCorrections: "שמירת תיקונים",
         approveRecord: "אישור הרשומה",
         previewTitle: "המסמך המקורי · התצוגה נשמרת בדפדפן זה בלבד",
-        originalForm: "טופס ההרשאה המקורי",
+        originalForm: "טופס ההתחייבות המקורי",
         deleteConfirm: "למחוק את הרשומה של {filename}? לא ניתן לבטל פעולה זו.",
         couldNotDelete: "לא ניתן למחוק את הרשומה.",
         couldNotSave: "לא ניתן לשמור את הרשומה.",
@@ -936,12 +939,15 @@
         groupedPdf: "מצב איחוד מיועד לעמודי תמונה; קובצי PDF מנותחים אוטומטית עמוד אחר עמוד.",
         extractingGrouped: "מחלץ טופס אחד מתוך {filename} ועוד {count} עמודים…",
         extractingPdf: "מחלץ כל עמוד PDF בנפרד: {filename}",
+        extractingPdfPage: "מחלץ כל עמוד PDF בנפרד: {filename} — עמוד {current} מתוך {total}",
+        progressUnavailable: "הצגת התקדמות העמודים אינה זמינה; החילוץ ממשיך.",
+        unexpectedServerResponse: "השרת החזיר תשובה שאינה JSON (HTTP {status}). ייתכן שמדובר במגבלת גודל העלאה או בשגיאת שרת. בדקו את יומני הפריסה ואת מגבלות ההעלאה.",
         extractingUpload: "מחלץ העלאה {current} מתוך {total}: {filename}",
         extractionFailed: "החילוץ נכשל.",
         uploadSummary: "ניסיונות העלאה: {completed}; הצליחו: {successful}; נוספו {records} רשומות. עמודי PDF מחולצים בנפרד.",
         couldNotLoad: "לא ניתן לטעון את הרשומות השמורות.",
         switchToHebrew: "עברית",
-        title: "Decipher | בדיקת הרשאות",
+        title: "Decipher | פיענוח התחייבויות",
       },
     };
     let currentLanguage = localStorage.getItem("decipher-language") === "he" ? "he" : "en";
@@ -952,6 +958,15 @@
         text = text.replaceAll(`{${name}}`, String(value));
       }
       return text;
+    }
+
+    async function readJsonResponse(response) {
+      const body = await response.text();
+      try {
+        return JSON.parse(body);
+      } catch {
+        throw new Error(t("unexpectedServerResponse", { status: response.status }));
+      }
     }
 
     function fieldLabel(field) {
@@ -1258,8 +1273,45 @@
           currentFiles.forEach((currentFile) => body.append("files", currentFile));
           if (grouped) body.append("group_images", "true");
           body.append("external_processing_consent", "true");
+          const progressId = isPdf ? crypto.randomUUID() : null;
+          let watchingProgress = Boolean(progressId);
+          let progressWatcher;
+          if (progressId) {
+            body.append("progress_id", progressId);
+            progressWatcher = (async () => {
+              while (watchingProgress) {
+                try {
+                  const progressResponse = await fetch(
+                    `/api/extract/progress/${encodeURIComponent(progressId)}`,
+                    { cache: "no-store" }
+                  );
+                  if (progressResponse.ok) {
+                    const pageProgress = await readJsonResponse(progressResponse);
+                    if (pageProgress.total_pages > 0) {
+                      progress.max = pageProgress.total_pages;
+                      progress.value = pageProgress.completed_pages;
+                      $("#uploadStatus").textContent = t("extractingPdfPage", {
+                        filename: file.name,
+                        current: Math.min(pageProgress.completed_pages + 1, pageProgress.total_pages),
+                        total: pageProgress.total_pages,
+                      });
+                    }
+                    if (pageProgress.done) return;
+                  } else if (progressResponse.status !== 404) {
+                    throw new Error(`Progress request failed (${progressResponse.status}).`);
+                  }
+                } catch {
+                  $("#uploadStatus").textContent = t("progressUnavailable");
+                  return;
+                }
+                await new Promise((resolve) => window.setTimeout(resolve, 300));
+              }
+            })();
+          }
           const response = await fetch("/api/extract", { method: "POST", body });
-          const result = await response.json();
+          watchingProgress = false;
+          if (progressWatcher) await progressWatcher;
+          const result = await readJsonResponse(response);
           if (!response.ok) {
             errors.push(`${file.name}: ${result.detail || t("extractionFailed")}`);
           } else {
@@ -1289,6 +1341,7 @@
             }
           }
           completed++;
+          progress.max = 100;
           progress.value = Math.round(completed * 100 / groups.length);
         }
         renderList();

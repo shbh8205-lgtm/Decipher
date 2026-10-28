@@ -14,8 +14,8 @@ from contextlib import closing
 from datetime import datetime, timezone
 from io import BytesIO, StringIO
 from pathlib import Path
-from typing import Annotated, Any, Iterator
-from uuid import uuid4
+from typing import Annotated, Any, Callable, Iterator
+from uuid import UUID, uuid4
 from hashlib import sha256
 from base64 import b64encode
 
@@ -60,7 +60,9 @@ LOGIN_WINDOW_SECONDS = 15 * 60
 EXTRACT_LIMIT = 10
 EXTRACT_WINDOW_SECONDS = 60 * 60
 SESSION_MAX_AGE_SECONDS = 12 * 60 * 60
+UPLOAD_PROGRESS_MAX_AGE_SECONDS = 10 * 60
 ALLOWED_EXTENSIONS = {".pdf", ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".webp"}
+UPLOAD_PROGRESS: dict[str, dict[str, int | bool | float]] = {}
 
 ENTITY_ALIASES = {
     "clalit": "Clalit",
@@ -631,13 +633,18 @@ def render_pdf_page(document: pymupdf.Document, index: int) -> bytes:
     return image_to_jpeg(image)
 
 
-def iter_pdf_pages(content: bytes) -> Iterator[tuple[int, bytes]]:
+def iter_pdf_pages(
+    content: bytes,
+    on_page_count: Callable[[int], None] | None = None,
+) -> Iterator[tuple[int, bytes]]:
     try:
         document = pymupdf.open(stream=content, filetype="pdf")
     except Exception as error:
         raise ValueError("Could not read this PDF.") from error
     try:
         page_count = document.page_count
+        if on_page_count:
+            on_page_count(page_count)
         if page_count > MAX_PAGES:
             raise ValueError(
                 f"PDF has {page_count} pages; MAX_PAGES limit is {MAX_PAGES}. "
@@ -675,6 +682,57 @@ def normalize_document(filename: str, content: bytes) -> Iterator[tuple[int, byt
                 yield index + 1, image_to_jpeg(image.copy())
     except (OSError, Image.DecompressionBombError) as error:
         raise ValueError("Could not read this image.") from error
+
+
+def update_upload_progress(
+    progress_id: str | None,
+    *,
+    completed_pages: int | None = None,
+    total_pages: int | None = None,
+    done: bool = False,
+) -> None:
+    if progress_id is None:
+        return
+    now = time.monotonic()
+    expired = [
+        key for key, value in UPLOAD_PROGRESS.items()
+        if now - float(value["updated_at"]) > UPLOAD_PROGRESS_MAX_AGE_SECONDS
+    ]
+    for key in expired:
+        UPLOAD_PROGRESS.pop(key, None)
+    previous = UPLOAD_PROGRESS.get(progress_id, {})
+    UPLOAD_PROGRESS[progress_id] = {
+        "completed_pages": (
+            completed_pages
+            if completed_pages is not None
+            else int(previous.get("completed_pages", 0))
+        ),
+        "total_pages": (
+            total_pages
+            if total_pages is not None
+            else int(previous.get("total_pages", 0))
+        ),
+        "done": done,
+        "updated_at": now,
+    }
+
+
+@app.get("/api/extract/progress/{progress_id}")
+def get_upload_progress(progress_id: str) -> dict[str, int | bool]:
+    try:
+        normalized_id = str(UUID(progress_id))
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail="Invalid upload progress ID.") from error
+    progress = UPLOAD_PROGRESS.get(normalized_id)
+    if progress is None:
+        raise HTTPException(status_code=404, detail="Upload progress not found.")
+    if progress["done"]:
+        UPLOAD_PROGRESS.pop(normalized_id, None)
+    return {
+        "completed_pages": int(progress["completed_pages"]),
+        "total_pages": int(progress["total_pages"]),
+        "done": bool(progress["done"]),
+    }
 
 
 async def extract_once(pages: list[tuple[int, bytes]], prompt: str) -> dict[str, Any]:
@@ -1289,12 +1347,19 @@ async def upload_documents(
     files: Annotated[list[UploadFile], File()],
     group_images: bool = Form(False),
     external_processing_consent: bool = Form(False),
+    progress_id: str | None = Form(None),
 ) -> dict[str, Any]:
     if not external_processing_consent:
         raise HTTPException(
             status_code=400,
             detail="Confirm that you are authorized to send these documents to the configured AI providers before processing.",
         )
+    if progress_id is not None:
+        try:
+            progress_id = str(UUID(progress_id))
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail="Invalid upload progress ID.") from error
+        update_upload_progress(progress_id)
     if group_images:
         filenames = [Path(upload.filename or "upload").name for upload in files]
         group_name = " + ".join(filenames)
@@ -1347,6 +1412,7 @@ async def upload_documents(
         filename = Path(upload.filename or "upload").name
         if Path(filename).suffix.casefold() not in ALLOWED_EXTENSIONS:
             errors.append({"filename": filename, "error": "Unsupported file type."})
+            update_upload_progress(progress_id, done=True)
             continue
         content = await upload.read(MAX_UPLOAD_BYTES + 1)
         if len(content) > MAX_UPLOAD_BYTES:
@@ -1357,12 +1423,23 @@ async def upload_documents(
                     "Increase MAX_UPLOAD_MB in the server environment to allow larger uploads."
                 ),
             })
+            update_upload_progress(progress_id, done=True)
             continue
         try:
             if Path(filename).suffix.casefold() == ".pdf":
                 records = []
                 page_errors = []
-                with closing(iter_pdf_pages(content)) as pages:
+                total_pages = 0
+
+                def set_total_pages(page_count: int) -> None:
+                    nonlocal total_pages
+                    total_pages = page_count
+                    update_upload_progress(
+                        progress_id,
+                        total_pages=total_pages,
+                    )
+
+                with closing(iter_pdf_pages(content, set_total_pages)) as pages:
                     for page_number, page_image in pages:
                         try:
                             extracted = await extract_document([(page_number, page_image)])
@@ -1381,6 +1458,11 @@ async def upload_documents(
                             })
                         finally:
                             del page_image
+                            update_upload_progress(
+                                progress_id,
+                                completed_pages=page_number,
+                                total_pages=total_pages,
+                            )
                 errors.extend(page_errors)
                 if records:
                     documents.append({
@@ -1394,6 +1476,12 @@ async def upload_documents(
                         "filename": filename,
                         "error": "No records were extracted from this PDF.",
                     })
+                update_upload_progress(
+                    progress_id,
+                    completed_pages=total_pages,
+                    total_pages=total_pages,
+                    done=True,
+                )
                 continue
 
             pages = list(normalize_document(filename, content))
@@ -1411,6 +1499,7 @@ async def upload_documents(
             errors.append({"filename": filename, "error": error.detail})
         except (ValueError, KeyError, TypeError) as error:
             errors.append({"filename": filename, "error": str(error)})
+        update_upload_progress(progress_id, done=True)
     return {"documents": documents, "errors": errors}
 
 

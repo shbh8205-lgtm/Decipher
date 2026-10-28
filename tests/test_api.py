@@ -10,6 +10,7 @@ import unittest
 from io import BytesIO
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
+from uuid import uuid4
 
 import bcrypt
 from fastapi.testclient import TestClient
@@ -824,14 +825,19 @@ class ExtractionApiTests(unittest.TestCase):
             }
 
         extractor = AsyncMock(side_effect=extract_page)
+        progress_id = str(uuid4())
         with patch.object(main, "render_pdf_page", side_effect=render_page):
             with patch.object(main, "extract_document", new=extractor):
                 with self.authenticated_client() as client:
                     response = client.post(
                         "/api/extract",
-                        data={"external_processing_consent": "true"},
+                        data={
+                            "external_processing_consent": "true",
+                            "progress_id": progress_id,
+                        },
                         files=[("files", ("commitments.pdf", pdf_bytes, "application/pdf"))],
                     )
+                    page_progress = client.get(f"/api/extract/progress/{progress_id}")
 
         self.assertEqual(response.status_code, 200)
         result = response.json()
@@ -840,6 +846,10 @@ class ExtractionApiTests(unittest.TestCase):
         records = result["documents"][0]["records"]
         self.assertEqual(len(records), page_count)
         self.assertEqual(extractor.await_count, page_count)
+        self.assertEqual(
+            page_progress.json(),
+            {"completed_pages": page_count, "total_pages": page_count, "done": True},
+        )
         self.assertEqual(
             events,
             [event for page in range(1, page_count + 1)
