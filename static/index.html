@@ -775,6 +775,7 @@
     const records = [];
     const previews = new Map();
     const thumbnails = new Map();
+    let recordsLoadVersion = 0;
     let selectedId = null;
     let modelReady = false;
     const $ = (selector) => document.querySelector(selector);
@@ -1357,6 +1358,16 @@
       } catch (error) {
         $("#uploadStatus").textContent = error.message;
       } finally {
+        try {
+          await loadRecords();
+          if (records.length) selectRecord(records[0].id);
+          if (recordsAdded) $("#recordsList").scrollTop = 0;
+        } catch (error) {
+          $("#uploadStatus").textContent = [
+            $("#uploadStatus").textContent,
+            error.message,
+          ].filter(Boolean).join(" ");
+        }
         $("#chooseButton").disabled = false;
         button.disabled = !modelReady || !$("#externalConsent").checked || !$("#fileInput").files.length;
         window.setTimeout(() => { progress.hidden = true; }, 1800);
@@ -1364,23 +1375,24 @@
     });
 
     async function loadRecords() {
-      try {
-        const response = await fetch("/api/records");
-        if (!response.ok) throw new Error(t("couldNotLoad"));
-        const savedRecords = await response.json();
-        savedRecords.forEach((record) => {
-          records.push(record);
-          if (record.preview_thumbnail) {
-            thumbnails.set(record.id, `data:image/jpeg;base64,${record.preview_thumbnail}`);
-          }
-        });
-        renderList();
-      } catch (error) {
-        $("#uploadStatus").textContent = error.message;
-      }
+      const requestVersion = ++recordsLoadVersion;
+      const response = await fetch("/api/records");
+      if (!response.ok) throw new Error(t("couldNotLoad"));
+      const savedRecords = await response.json();
+      if (requestVersion !== recordsLoadVersion) return;
+      records.length = 0;
+      savedRecords.forEach((record) => {
+        records.push(record);
+        if (record.preview_thumbnail) {
+          thumbnails.set(record.id, `data:image/jpeg;base64,${record.preview_thumbnail}`);
+        }
+      });
+      renderList();
     }
     applyLanguage();
-    loadRecords();
+    loadRecords().catch((error) => {
+      $("#uploadStatus").textContent = error.message;
+    });
     checkModel();
   </script>
 </body>
