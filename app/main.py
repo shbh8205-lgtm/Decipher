@@ -14,7 +14,7 @@ from contextlib import closing
 from datetime import datetime, timezone
 from io import BytesIO, StringIO
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, Iterator
 from uuid import uuid4
 from hashlib import sha256
 from base64 import b64encode
@@ -50,8 +50,9 @@ OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
 ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages"
 SESSION_SECRET = os.getenv("SESSION_SECRET") or secrets.token_urlsafe(32)
 DEMO_BANNER = os.getenv("DEMO_BANNER", "").strip().casefold() in {"1", "true", "yes", "on"}
-MAX_UPLOAD_BYTES = 20 * 1024 * 1024
-MAX_PAGES = 12
+MAX_UPLOAD_MB = int(os.getenv("MAX_UPLOAD_MB", "25"))
+MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024
+MAX_PAGES = int(os.getenv("MAX_PAGES", "60"))
 MIN_CONFIDENCE = 0.75
 GEMINI_MAX_ATTEMPTS = 3
 LOGIN_LIMIT = 10
@@ -623,40 +624,57 @@ def make_preview_thumbnail(image_bytes: bytes) -> str:
     return base64.b64encode(output.getvalue()).decode("ascii")
 
 
-def normalize_document(filename: str, content: bytes) -> list[tuple[int, bytes]]:
-    extension = Path(filename).suffix.casefold()
-    pages: list[tuple[int, bytes]] = []
-    if extension == ".pdf":
-        try:
-            document = pymupdf.open(stream=content, filetype="pdf")
-        except Exception as error:
-            raise ValueError("Could not read this PDF.") from error
+def render_pdf_page(document: pymupdf.Document, index: int) -> bytes:
+    page = document.load_page(index)
+    pixmap = page.get_pixmap(matrix=pymupdf.Matrix(250 / 72, 250 / 72), alpha=False)
+    image = Image.frombytes("RGB", (pixmap.width, pixmap.height), pixmap.samples)
+    return image_to_jpeg(image)
+
+
+def iter_pdf_pages(content: bytes) -> Iterator[tuple[int, bytes]]:
+    try:
+        document = pymupdf.open(stream=content, filetype="pdf")
+    except Exception as error:
+        raise ValueError("Could not read this PDF.") from error
+    try:
         page_count = document.page_count
         if page_count > MAX_PAGES:
-            document.close()
-            raise ValueError(f"PDF has {page_count} pages; the limit is {MAX_PAGES}.")
-        try:
-            for index, page in enumerate(document):
-                pixmap = page.get_pixmap(matrix=pymupdf.Matrix(250 / 72, 250 / 72), alpha=False)
-                image = Image.frombytes("RGB", (pixmap.width, pixmap.height), pixmap.samples)
-                pages.append((index + 1, image_to_jpeg(image)))
-        except Exception as error:
-            raise ValueError("Could not render a page in this PDF.") from error
-        finally:
-            document.close()
-        return pages
+            raise ValueError(
+                f"PDF has {page_count} pages; MAX_PAGES limit is {MAX_PAGES}. "
+                "Increase MAX_PAGES in the server environment to allow more pages."
+            )
+        for index in range(page_count):
+            try:
+                page_image = render_pdf_page(document, index)
+            except Exception as error:
+                raise ValueError("Could not render a page in this PDF.") from error
+            # MuPDF caches rendered resources; clear them to keep memory independent of page count.
+            pymupdf.TOOLS.store_shrink(100)
+            yield index + 1, page_image
+            del page_image
+    finally:
+        document.close()
+
+
+def normalize_document(filename: str, content: bytes) -> Iterator[tuple[int, bytes]]:
+    extension = Path(filename).suffix.casefold()
+    if extension == ".pdf":
+        yield from iter_pdf_pages(content)
+        return
 
     try:
         with Image.open(BytesIO(content)) as image:
             frame_count = getattr(image, "n_frames", 1)
             if frame_count > MAX_PAGES:
-                raise ValueError(f"Image has {frame_count} frames; the limit is {MAX_PAGES}.")
+                raise ValueError(
+                    f"Image has {frame_count} frames; MAX_PAGES limit is {MAX_PAGES}. "
+                    "Increase MAX_PAGES in the server environment to allow more pages."
+                )
             for index in range(frame_count):
                 image.seek(index)
-                pages.append((index + 1, image_to_jpeg(image.copy())))
+                yield index + 1, image_to_jpeg(image.copy())
     except (OSError, Image.DecompressionBombError) as error:
         raise ValueError("Could not read this image.") from error
-    return pages
 
 
 async def extract_once(pages: list[tuple[int, bytes]], prompt: str) -> dict[str, Any]:
@@ -1284,7 +1302,10 @@ async def upload_documents(
             if not files:
                 raise ValueError("Choose at least one image page to group.")
             if len(files) > MAX_PAGES:
-                raise ValueError(f"A grouped form can have at most {MAX_PAGES} pages.")
+                raise ValueError(
+                    f"A grouped form exceeds the MAX_PAGES limit of {MAX_PAGES}. "
+                    "Increase MAX_PAGES in the server environment to allow more pages."
+                )
             pages = []
             total_bytes = 0
             for upload, filename in zip(files, filenames):
@@ -1293,11 +1314,17 @@ async def upload_documents(
                 content = await upload.read(MAX_UPLOAD_BYTES + 1)
                 total_bytes += len(content)
                 if len(content) > MAX_UPLOAD_BYTES or total_bytes > MAX_UPLOAD_BYTES:
-                    raise ValueError("Grouped form exceeds the 20 MB total size limit.")
+                    raise ValueError(
+                        f"Grouped form exceeds the MAX_UPLOAD_MB limit of {MAX_UPLOAD_MB} MB. "
+                        "Increase MAX_UPLOAD_MB in the server environment to allow larger uploads."
+                    )
                 normalized_pages = normalize_document(filename, content)
                 pages.extend((len(pages) + 1, image) for _, image in normalized_pages)
                 if len(pages) > MAX_PAGES:
-                    raise ValueError(f"A grouped form can have at most {MAX_PAGES} pages.")
+                    raise ValueError(
+                        f"A grouped form exceeds the MAX_PAGES limit of {MAX_PAGES}. "
+                        "Increase MAX_PAGES in the server environment to allow more pages."
+                    )
             extracted = await extract_document(pages)
             records = save_records(group_name, pages, extracted)
             return {
@@ -1323,31 +1350,37 @@ async def upload_documents(
             continue
         content = await upload.read(MAX_UPLOAD_BYTES + 1)
         if len(content) > MAX_UPLOAD_BYTES:
-            errors.append({"filename": filename, "error": "File exceeds the 20 MB limit."})
+            errors.append({
+                "filename": filename,
+                "error": (
+                    f"File exceeds the MAX_UPLOAD_MB limit of {MAX_UPLOAD_MB} MB. "
+                    "Increase MAX_UPLOAD_MB in the server environment to allow larger uploads."
+                ),
+            })
             continue
         try:
-            pages = normalize_document(filename, content)
-            if not pages:
-                raise ValueError("No readable pages found.")
             if Path(filename).suffix.casefold() == ".pdf":
                 records = []
                 page_errors = []
-                for page_number, page_image in pages:
-                    try:
-                        extracted = await extract_document([(page_number, page_image)])
-                        records.extend(
-                            save_records(filename, [(page_number, page_image)], extracted)
-                        )
-                    except HTTPException as error:
-                        page_errors.append({
-                            "filename": filename,
-                            "error": f"Page {page_number}: {error.detail}",
-                        })
-                    except (ValueError, KeyError, TypeError) as error:
-                        page_errors.append({
-                            "filename": filename,
-                            "error": f"Page {page_number}: {error}",
-                        })
+                with closing(iter_pdf_pages(content)) as pages:
+                    for page_number, page_image in pages:
+                        try:
+                            extracted = await extract_document([(page_number, page_image)])
+                            records.extend(
+                                save_records(filename, [(page_number, page_image)], extracted)
+                            )
+                        except HTTPException as error:
+                            page_errors.append({
+                                "filename": filename,
+                                "error": f"Page {page_number}: {error.detail}",
+                            })
+                        except (ValueError, KeyError, TypeError) as error:
+                            page_errors.append({
+                                "filename": filename,
+                                "error": f"Page {page_number}: {error}",
+                            })
+                        finally:
+                            del page_image
                 errors.extend(page_errors)
                 if records:
                     documents.append({
@@ -1363,6 +1396,9 @@ async def upload_documents(
                     })
                 continue
 
+            pages = list(normalize_document(filename, content))
+            if not pages:
+                raise ValueError("No readable pages found.")
             extracted = await extract_document(pages)
             records = save_records(filename, pages, extracted)
             documents.append({

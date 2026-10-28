@@ -77,13 +77,15 @@ deactivate
 
 ## Processing and review
 
-- Supported inputs: PDF, PNG, JPEG, TIFF, BMP, and WebP; maximum 20 MB and 12 pages per form.
+- Supported inputs: PDF, PNG, JPEG, TIFF, BMP, and WebP; by default, maximum 25 MB per upload
+  and 60 pages per form. Set `MAX_UPLOAD_MB` or `MAX_PAGES` in the server environment to change
+  those limits. If a limit is reached, the upload error names the setting to increase.
   Use the grouping option to treat selected images as pages from one photographed/scanned form;
   PDFs already group their pages automatically.
-- PDFs are rendered at 250 DPI; image orientation is corrected and images are normalized before
-  extraction. PDF pages are extracted individually, and the source page number is stored with
-  each resulting authorization record. Image pages selected with the grouping option are treated
-  together as one form.
+- PDFs are rendered at 250 DPI one page at a time; each page is extracted before the next page is
+  rendered. Image orientation is corrected and images are normalized before extraction. The
+  source page number is stored with each resulting authorization record. Image pages selected
+  with the grouping option are treated together as one form.
 - Central-number barcodes are decoded locally with ZXing after the two Gemini readings are
   reconciled. Barcode images and crops are not saved or sent to Gemini; the database stores only
   the decoded value, verification status, and any OCR alternative. A missing barcode is normal.

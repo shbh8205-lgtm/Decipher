@@ -36,3 +36,7 @@ services:
         value: "false"
       - key: DEMO_SEED
         value: "1"
+      - key: MAX_UPLOAD_MB
+        value: "25"
+      - key: MAX_PAGES
+        value: "60"

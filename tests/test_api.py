@@ -735,6 +735,22 @@ class ExtractionApiTests(unittest.TestCase):
             )
             self.assertEqual(response.status_code, 400)
 
+    def test_upload_size_limit_error_names_configuration_setting(self) -> None:
+        with patch.object(main, "MAX_UPLOAD_MB", 1), patch.object(
+            main, "MAX_UPLOAD_BYTES", 1
+        ):
+            with self.authenticated_client() as client:
+                response = client.post(
+                    "/api/extract",
+                    data={"external_processing_consent": "true"},
+                    files=[("files", ("authorization.png", b"too large", "image/png"))],
+                )
+
+        self.assertEqual(response.status_code, 200)
+        error = response.json()["errors"][0]["error"]
+        self.assertIn("MAX_UPLOAD_MB limit of 1 MB", error)
+        self.assertIn("Increase MAX_UPLOAD_MB", error)
+
     def test_pdf_over_page_limit_reports_page_count(self) -> None:
         document = pymupdf.open()
         for _ in range(main.MAX_PAGES + 1):
@@ -742,22 +758,39 @@ class ExtractionApiTests(unittest.TestCase):
         pdf_bytes = document.tobytes()
         document.close()
 
-        with self.assertRaisesRegex(
-            ValueError,
-            f"PDF has {main.MAX_PAGES + 1} pages; the limit is {main.MAX_PAGES}.",
-        ):
-            main.normalize_document("many-pages.pdf", pdf_bytes)
+        with self.authenticated_client() as client:
+            response = client.post(
+                "/api/extract",
+                data={"external_processing_consent": "true"},
+                files=[("files", ("many-pages.pdf", pdf_bytes, "application/pdf"))],
+            )
+
+        self.assertEqual(response.status_code, 200)
+        error = response.json()["errors"][0]["error"]
+        self.assertIn(
+            f"PDF has {main.MAX_PAGES + 1} pages; MAX_PAGES limit is {main.MAX_PAGES}.",
+            error,
+        )
+        self.assertIn("Increase MAX_PAGES", error)
 
     def test_pdf_extracts_each_page_individually_into_records(self) -> None:
-        page_count = 11
+        page_count = 40
         document = pymupdf.open()
         for _ in range(page_count):
             document.new_page(width=72, height=72)
         pdf_bytes = document.tobytes()
         document.close()
 
+        events = []
+        render_pdf_page = main.render_pdf_page
+
+        def render_page(document: pymupdf.Document, index: int) -> bytes:
+            events.append(("render", index + 1))
+            return render_pdf_page(document, index)
+
         async def extract_page(pages: list[tuple[int, bytes]]) -> dict:
             page_number = pages[0][0]
+            events.append(("extract", page_number))
             return {
                 "first_name": "Maya",
                 "last_name": "Cohen",
@@ -791,13 +824,14 @@ class ExtractionApiTests(unittest.TestCase):
             }
 
         extractor = AsyncMock(side_effect=extract_page)
-        with patch.object(main, "extract_document", new=extractor):
-            with self.authenticated_client() as client:
-                response = client.post(
-                    "/api/extract",
-                    data={"external_processing_consent": "true"},
-                    files=[("files", ("commitments.pdf", pdf_bytes, "application/pdf"))],
-                )
+        with patch.object(main, "render_pdf_page", side_effect=render_page):
+            with patch.object(main, "extract_document", new=extractor):
+                with self.authenticated_client() as client:
+                    response = client.post(
+                        "/api/extract",
+                        data={"external_processing_consent": "true"},
+                        files=[("files", ("commitments.pdf", pdf_bytes, "application/pdf"))],
+                    )
 
         self.assertEqual(response.status_code, 200)
         result = response.json()
@@ -806,6 +840,11 @@ class ExtractionApiTests(unittest.TestCase):
         records = result["documents"][0]["records"]
         self.assertEqual(len(records), page_count)
         self.assertEqual(extractor.await_count, page_count)
+        self.assertEqual(
+            events,
+            [event for page in range(1, page_count + 1)
+             for event in (("render", page), ("extract", page))],
+        )
         self.assertEqual([record["source_pages"] for record in records], [[page] for page in range(1, page_count + 1)])
         self.assertEqual(
             [record["authorization_number"] for record in records],
